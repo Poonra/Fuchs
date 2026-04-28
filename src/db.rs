@@ -53,3 +53,30 @@ pub async fn  list_stocks(pool: &SqlitePool) -> Result<Vec<Stock>, sqlx::Error>{
     Ok(lists)
 }
 
+pub async fn get_stock_by_symbol(pool: &SqlitePool, symbol: &str) -> Result<Option<Stock>, sqlx::Error> {
+    let stock_name = sqlx::query_as::<_, Stock>("SELECT id, symbol, name FROM stocks where symbol = ?")
+        .bind(&symbol)
+        .fetch_optional(pool)
+        .await?;
+    Ok(stock_name)
+}
+
+pub async fn insert_price(pool: &SqlitePool, stock_id: i64,
+                          date: &str, open: f64,
+                          high: f64, low: f64,
+                          close: f64, volume: i64) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT OR IGNORE INTO price
+                    (stock_id, date, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .bind(stock_id)
+        .bind(date)
+        .bind(open)
+        .bind(high)
+        .bind(low)
+        .bind(close)
+        .bind(volume)
+        .execute(pool).await?;
+
+    Ok(())
+
+}
+

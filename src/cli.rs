@@ -1,4 +1,5 @@
 use crate::db;
+use crate::ingest;
 pub async fn run(pool: &sqlx::SqlitePool){
 
     let args: Vec<String>=  std::env::args().collect();
@@ -19,7 +20,12 @@ pub async fn run(pool: &sqlx::SqlitePool){
 
             }
         }
-        Some("sync") => println!("Sync"),
+        Some("sync") => {
+            let stocks = db::list_stocks(pool).await.expect("failed to load stocks");
+            for stock in &stocks {
+                ingest::sync_stock(pool, &stock.symbol).await.expect("Failed to sync stock");
+            }
+            }
         None => println!("Usage: fuchs <add|list|sync>"),
         _ => println!("Invalid argument"),
     }
