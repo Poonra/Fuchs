@@ -22,7 +22,10 @@ pub async fn sync_stock(pool: &SqlitePool, symbol: &str) -> Result<(), Box<dyn s
     let response = provider.get_quote_history(symbol, start, end).await?;
     let quotes = response.quotes()?;
 
-
+    let search = provider.search_ticker(symbol).await?;
+    if let Some(result) = search.quotes.first() {
+        db::update_stock_name(pool, symbol, &result.long_name).await?;
+    }
 
     for quote in &quotes {
         let date = OffsetDateTime::from_unix_timestamp(quote.timestamp as i64)?;
@@ -44,3 +47,4 @@ pub async fn sync_stock(pool: &SqlitePool, symbol: &str) -> Result<(), Box<dyn s
 
     Ok(())
 }
+

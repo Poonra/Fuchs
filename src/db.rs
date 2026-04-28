@@ -80,3 +80,12 @@ pub async fn insert_price(pool: &SqlitePool, stock_id: i64,
 
 }
 
+pub async fn update_stock_name(pool: &SqlitePool, symbol: &str, name: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE stocks SET name = ? WHERE symbol = ?")
+        .bind(name)
+        .bind(symbol)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
