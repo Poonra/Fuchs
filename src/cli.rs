@@ -36,7 +36,16 @@ pub async fn run(pool: &sqlx::SqlitePool){
                     let result = compute(pool, symbol).await
                         .expect("Failed to compute indicators");
                     println!("Indicators for {} : ", symbol);
-                    println!("RSI(14): {:.2}", result.rsi);
+                    println!("  Last close:      {:.2}", result.last_close);
+                    println!("  RSI(14):         {:.2}", result.rsi);
+                    println!("  SMA(50):         {:.2}", result.sma_50);
+                    println!("  SMA(200):        {:.2}", result.sma_200);
+                    println!("  MACD:            {:.2}", result.macd);
+                    println!("  MACD signal:     {:.2}", result.macd_signal);
+                    println!("  MACD histogram:  {:.2}", result.macd_histogram);
+                    println!("  BB lower:        {:.2}", result.bb_lower);
+                    println!("  BB middle:       {:.2}", result.bb_middle);
+                    println!("  BB upper:        {:.2}", result.bb_upper);
                 }
                 None => println!("Usage: fuchs score <SYMBOL>"),
             }
