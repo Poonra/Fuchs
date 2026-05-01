@@ -90,13 +90,25 @@ pub async fn update_stock_name(pool: &SqlitePool, symbol: &str, name: &str) -> R
     Ok(())
 }
 
-pub async fn get_prices(pool: &SqlitePool, stock_id:i64) -> Result<Vec<Price>, sqlx::Error>{
-    let prices=  sqlx::query_as::<_, Price>(
-    "SELECT * FROM prices WHERE stock_id = ? ORDER BY date ASC"
-)
-.bind(stock_id)
-.fetch_all(pool)
-.await?;
-Ok(prices)
+pub async fn get_prices(pool: &SqlitePool, stock_id:i64, as_of: Option<&str>,) -> Result<Vec<Price>, sqlx::Error> {
+    let prices = match as_of {
+        Some(date) => {
+            sqlx::query_as::<_, Price>(
+                "SELECT * FROM prices WHERE stock_id = ? AND date <= ? ORDER BY date ASC"
+            )
+                .bind(stock_id)
+                .bind(date)
+                .fetch_all(pool)
+                .await?
+        }
+    None => { sqlx::query_as::<_, Price>(
+        "SELECT * FROM prices WHERE stock_id = ? ORDER BY date ASC"
+        )
+        .bind(stock_id)
+        .fetch_all(pool)
+        .await?
+        }
+    };
+    Ok(prices)
 }
 

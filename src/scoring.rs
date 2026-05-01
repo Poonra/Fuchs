@@ -1,12 +1,12 @@
 use crate::indicators::Indicators;
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 pub struct RuleHit{
     pub rule: String,
     pub points: i32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 pub struct ScoreBreakdown{
     pub total: i32,
     pub hits: Vec<RuleHit>, //when rule condition are true
@@ -75,9 +75,44 @@ pub fn score_technical(ind: &Indicators) -> ScoreBreakdown {
         });
     }
 
+    if ind.last_close < ind.sma_200 {
+        hits.push(RuleHit {
+            rule: "Close < SMA-200".to_string(),
+            points: -20,
+        });
+    }
 
-    let total:i32 = hits.iter().map(|h| h.points).sum();
-    let total = total.clamp(0,100);
+    if ind.last_close < ind.sma_50 {
+        hits.push(RuleHit {
+            rule: "Close < SMA-50".to_string(),
+            points: -10,
+        });
+    }
+
+    if ind.sma_50 < ind.sma_200 {
+        hits.push(RuleHit {
+            rule: "SMA-50 < SMA-200 (death cross)".to_string(),
+            points: -15,
+        });
+    }
+
+    if ind.macd < ind.macd_signal {
+        hits.push(RuleHit {
+            rule: "MACD < signal (bearish)".to_string(),
+            points: -15,
+        });
+    }
+
+    if ind.macd_histogram < 0.0 {
+        hits.push(RuleHit {
+            rule: "MACD histogram negative".to_string(),
+            points: -10,
+        });
+    }
+
+
+    let raw:i32 = hits.iter().map(|h| h.points).sum();
+    let total = (50+raw).clamp(0,100);
 
     ScoreBreakdown{total, hits}
 }

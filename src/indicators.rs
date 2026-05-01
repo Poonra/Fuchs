@@ -4,7 +4,7 @@ use anyhow::bail;
 use ta::Next;
 use ta::indicators::{BollingerBands, BollingerBandsOutput, MovingAverageConvergenceDivergence, MovingAverageConvergenceDivergenceOutput, RelativeStrengthIndex, SimpleMovingAverage};
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 pub struct Indicators {
     pub rsi: f64,
     pub sma_50: f64,
@@ -18,10 +18,10 @@ pub struct Indicators {
     pub last_close: f64,
 }
 
-pub async fn compute(pool: &SqlitePool,symbol: &str) -> anyhow::Result<Indicators>{
+pub async fn compute(pool: &SqlitePool,symbol: &str,as_of: Option<&str>) -> anyhow::Result<Indicators>{
     let stock = get_stock_by_symbol(pool, symbol).await?
         .ok_or_else(|| anyhow::anyhow!("Stock {} not found", symbol))?;
-    let prices = get_prices(pool, stock.id).await?;
+    let prices = get_prices(pool, stock.id, as_of).await?;
 
     if prices.is_empty() {
             bail!("No prices found for {}. Run `fuchs sync` first.", symbol);
