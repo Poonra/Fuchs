@@ -7,6 +7,9 @@ use axum::extract::Path;
 use crate::indicators::{compute, Indicators};
 use crate::scoring::{score_technical, ScoreBreakdown};
 use crate::models::Price;
+use tower_http::services::ServeDir;
+use std::time::Duration;
+use crate::ingest;
 
 pub struct AppError(anyhow::Error);
 
@@ -25,15 +28,19 @@ where
     }
 }
 
-async fn root() -> &'static str{
-    "fuchs is running"
-}
 pub async fn serve(pool:SqlitePool) -> anyhow::Result<()> { // register all routes here!!!
+
+    //spawn scheduler endless loop
+
+    let scheduler_pool = pool.clone();
+    tokio::spawn(async move {
+        run_scheduler(scheduler_pool).await;
+    });
     let app = Router::new()
-        .route("/", get(root))
         .route("/api/stocks", get(list_stocks))
         .route("/api/stocks/{symbol}/prices", get(get_prices))
         .route("/api/stocks/{symbol}/score", get(get_score))
+        .fallback_service(ServeDir::new("static"))
 
         .with_state(pool);
 
@@ -42,6 +49,37 @@ pub async fn serve(pool:SqlitePool) -> anyhow::Result<()> { // register all rout
     axum::serve(listener, app).await?;
     Ok(())
 }
+
+async fn run_scheduler(pool:SqlitePool){
+    let interval_secs = 300; //5 min
+    let mut ticker = tokio::time::interval(Duration::from_secs(interval_secs));
+
+    ticker.tick().await; //sync already when runs up so no need sync
+
+    loop{
+        ticker.tick().await;
+        println!("[Scheduler] tick: start sync");
+
+        let stocks = match db::list_stocks(&pool).await {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[scheduler] failed to list stocks: {}", e);
+                continue;
+            }
+        };
+
+        for stock in &stocks {
+            match ingest::sync_stock(&pool, &stock.symbol).await {
+                Ok(_) => {},
+                Err(e) => eprintln!("[scheduler] {} sync failed: {}", stock.symbol, e),
+            }
+        }
+
+        println!("[Scheduler] sync complete {} stocks",stocks.len());
+    }
+}
+
+
 
 async fn list_stocks(
     State(pool): State<SqlitePool>,

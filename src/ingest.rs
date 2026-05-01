@@ -5,7 +5,7 @@ use time::Duration;
 use crate::db;
 
 
-pub async fn sync_stock(pool: &SqlitePool, symbol: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn sync_stock(pool: &SqlitePool, symbol: &str) -> anyhow::Result<()> {
     let stock = match db::get_stock_by_symbol(pool, symbol).await? {
         Some(s) => s,
         None => {

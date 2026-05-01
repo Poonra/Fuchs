@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>fuchs</title>
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        body { font-family: monospace; margin: 2rem; background: #111; color: #eee; }
+        h1 { color: #f80; }
+        .layout { display: flex; gap: 2rem; }
+        .watchlist { min-width: 200px; }
+        .watchlist ul { list-style: none; padding: 0; }
+        .watchlist li { padding: 0.5rem; cursor: pointer; border: 1px solid #333; margin-bottom: 0.25rem; }
+        .watchlist li:hover { background: #222; }
+        .watchlist li.active { background: #333; border-color: #f80; }
+        .detail { flex: 1; }
+        .score-total { font-size: 2rem; color: #f80; }
+        .hits { margin-top: 1rem; }
+        .hit { padding: 0.25rem 0; border-bottom: 1px solid #222; }
+        .hit.positive { color: #6f6; }
+        .hit.negative { color: #f66; }
+        #chart-container { width: 100%; height: 400px; margin-top: 1rem; }
+
+        .gauge {
+            position: relative;
+            height: 20px;
+            background: #222;
+            border: 1px solid #444;
+            margin: 0.5rem 0 1rem;
+        }
+        .gauge-center {
+            position: absolute;
+            left: 50%;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #888;
+        }
+        .gauge-fill {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+        }
+    </style>
+</head>
+<body>
+<h1>fuchs</h1>
+
+<div class="layout">
+    <div class="watchlist">
+        <h2>watchlist</h2>
+        <ul id="watchlist-ul">loading...</ul>
+    </div>
+
+    <div class="detail">
+        <h2 id="detail-symbol">select a stock</h2>
+        <div id="chart-container"></div>
+        <div id="detail-content"></div>
+    </div>
+</div>
+
+<script>
+    let chart = null;
+    let candleSeries = null;
+
+    function initChart() {
+        const container = document.getElementById('chart-container');
+        chart = LightweightCharts.createChart(container, {
+            layout: {
+                background: { color: '#111' },
+                textColor: '#eee',
+            },
+            grid: {
+                vertLines: { color: '#222' },
+                horzLines: { color: '#222' },
+            },
+            width: container.clientWidth,
+            height: 400,
+        });
+        candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
+            upColor: '#6f6',
+            downColor: '#f66',
+            borderUpColor: '#6f6',
+            borderDownColor: '#f66',
+            wickUpColor: '#6f6',
+            wickDownColor: '#f66',
+        });
+    }
+
+    async function loadWatchlist() {
+        const res = await fetch('/api/stocks');
+        const stocks = await res.json();
+        const ul = document.getElementById('watchlist-ul');
+        ul.innerHTML = '';
+
+        if (stocks.length === 0) {
+            ul.innerHTML = '<li>empty. add stocks via CLI.</li>';
+            return;
+        }
+
+        for (const stock of stocks) {
+            const li = document.createElement('li');
+            li.textContent = `${stock.symbol}${stock.name ? ' — ' + stock.name : ''}`;
+            li.addEventListener('click', () => selectStock(stock.symbol, li));
+            ul.appendChild(li);
+        }
+    }
+
+    async function selectStock(symbol, liElement) {
+        document.querySelectorAll('.watchlist li').forEach(el => el.classList.remove('active'));
+        liElement.classList.add('active');
+
+        document.getElementById('detail-symbol').textContent = symbol;
+        const content = document.getElementById('detail-content');
+        content.innerHTML = 'loading...';
+
+        try {
+            const [scoreRes, pricesRes] = await Promise.all([
+                fetch(`/api/stocks/${symbol}/score`),
+                fetch(`/api/stocks/${symbol}/prices`),
+            ]);
+            if (!scoreRes.ok) throw new Error(`score: HTTP ${scoreRes.status}`);
+            if (!pricesRes.ok) throw new Error(`prices: HTTP ${pricesRes.status}`);
+
+            const scoreData = await scoreRes.json();
+            const pricesData = await pricesRes.json();
+
+            renderScore(scoreData);
+            renderChart(pricesData);
+        } catch (err) {
+            content.innerHTML = `<p style="color:#f66">error: ${err.message}</p>`;
+        }
+    }
+
+    function renderChart(prices) {
+        const candles = prices.map(p => ({
+            time: p.date,
+            open: p.open,
+            high: p.high,
+            low: p.low,
+            close: p.close,
+        }));
+        candleSeries.setData(candles);
+        chart.timeScale().fitContent();
+    }
+    function renderGauge(score) {
+        const offset = score - 50;
+        const width = Math.abs(offset);
+        // bullish: anchor LEFT edge at 50%, grow right
+        // bearish: anchor RIGHT edge at 50%, grow left
+        const side = offset >= 0 ? 'left' : 'right';
+        const color = offset >= 0 ? '#6f6' : '#f66';
+
+        return `
+        <div class="gauge">
+            <div class="gauge-center"></div>
+            <div class="gauge-fill" style="${side}: 50%; width: ${width}%; background: ${color};"></div>
+        </div>
+    `;
+    }
+    function renderScore(data) {
+        const content = document.getElementById('detail-content');
+        const ind = data.indicators;
+        const br = data.breakdown;
+
+        const hitsHtml = br.hits.map(h => {
+            const cls = h.points >= 0 ? 'positive' : 'negative';
+            const sign = h.points >= 0 ? '+' : '';
+            return `<div class="hit ${cls}">${sign}${h.points}  ${h.rule}</div>`;
+        }).join('');
+
+        content.innerHTML = `
+                <div class="score-total">score: ${br.total}/100</div>
+                ${renderGauge(br.total)}
+                <p>last close: ${ind.last_close.toFixed(2)}</p>
+                <p>RSI(14): ${ind.rsi.toFixed(2)} · SMA50: ${ind.sma_50.toFixed(2)} · SMA200: ${ind.sma_200.toFixed(2)}</p>
+                <p>MACD: ${ind.macd.toFixed(2)} signal: ${ind.macd_signal.toFixed(2)} hist: ${ind.macd_histogram.toFixed(2)}</p>
+                <p>BB: ${ind.bb_lower.toFixed(2)} / ${ind.bb_middle.toFixed(2)} / ${ind.bb_upper.toFixed(2)}</p>
+                <div class="hits"><h3>breakdown</h3>${hitsHtml}</div>
+            `;
+    }
+
+    initChart();
+    loadWatchlist();
+</script>
+</body>
+</html>
