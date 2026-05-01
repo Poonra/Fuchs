@@ -1,7 +1,7 @@
 use crate::db;
 use crate::ingest;
 use crate::indicators::compute;
-
+use crate::scoring;
 
 pub async fn run(pool: &sqlx::SqlitePool){
 
@@ -46,6 +46,14 @@ pub async fn run(pool: &sqlx::SqlitePool){
                     println!("  BB lower:        {:.2}", result.bb_lower);
                     println!("  BB middle:       {:.2}", result.bb_middle);
                     println!("  BB upper:        {:.2}", result.bb_upper);
+
+                    let breakdown = scoring::score_technical(&result);
+                    println!("\nTechnical score: {}/100", breakdown.total);
+                    println!("Breakdown:");
+                    for hit in &breakdown.hits {
+                        let sign = if hit.points >= 0 { "+" } else { "" };
+                        println!("  {}{}  {}", sign, hit.points, hit.rule);
+                    }
                 }
                 None => println!("Usage: fuchs score <SYMBOL>"),
             }

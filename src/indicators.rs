@@ -1,9 +1,8 @@
-
 use sqlx::SqlitePool;
 use crate::db::{get_prices, get_stock_by_symbol};
 use anyhow::bail;
 use ta::Next;
-use ta::indicators::{RelativeStrengthIndex, SimpleMovingAverage, MovingAverageConvergenceDivergence, BollingerBands, MovingAverageConvergenceDivergenceOutput, BollingerBandsOutput};
+use ta::indicators::{BollingerBands, BollingerBandsOutput, MovingAverageConvergenceDivergence, MovingAverageConvergenceDivergenceOutput, RelativeStrengthIndex, SimpleMovingAverage};
 
 #[derive(Debug)]
 pub struct Indicators {
