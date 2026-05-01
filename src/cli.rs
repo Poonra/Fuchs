@@ -1,5 +1,8 @@
 use crate::db;
 use crate::ingest;
+use crate::indicators::compute;
+
+
 pub async fn run(pool: &sqlx::SqlitePool){
 
     let args: Vec<String>=  std::env::args().collect();
@@ -26,8 +29,22 @@ pub async fn run(pool: &sqlx::SqlitePool){
                 ingest::sync_stock(pool, &stock.symbol).await.expect("Failed to sync stock");
             }
             }
+
+        Some("score") => {
+            match args.get(2).map(|s| s.as_str()) {
+                Some(symbol) => {
+                    let result = compute(pool, symbol).await
+                        .expect("Failed to compute indicators");
+                    println!("Indicators for {} : ", symbol);
+                    println!("RSI(14): {:.2}", result.rsi);
+                }
+                None => println!("Usage: fuchs score <SYMBOL>"),
+            }
+        }
         None => println!("Usage: fuchs <add|list|sync>"),
         _ => println!("Invalid argument"),
+
+
     }
 
 }

@@ -17,7 +17,7 @@ pub async fn sync_stock(pool: &SqlitePool, symbol: &str) -> Result<(), Box<dyn s
     let provider = yahoo::YahooConnector::new()?;
 
     let end = OffsetDateTime::now_utc();
-    let start = end - Duration::days(730);
+    let start = end - Duration::days(1825);
 
     let response = provider.get_quote_history(symbol, start, end).await?;
     let quotes = response.quotes()?;

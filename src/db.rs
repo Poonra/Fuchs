@@ -1,5 +1,6 @@
 use sqlx::SqlitePool;
-use crate::models::Stock;
+use crate::models::{Stock, Price};
+
 pub async fn init_db() -> Result<SqlitePool, sqlx::Error> {
 
     let pool = SqlitePool::connect("sqlite:fuchs.db?mode=rwc").await?;
@@ -15,7 +16,7 @@ pub async fn init_db() -> Result<SqlitePool, sqlx::Error> {
 .await?;
 
     sqlx::query(
-        "CREATE TABLE IF NOT EXISTS price(
+        "CREATE TABLE IF NOT EXISTS prices(
         id INTEGER PRIMARY KEY,
         stock_id INTEGER NOT NULL,
         date TEXT NOT NULL,
@@ -65,7 +66,7 @@ pub async fn insert_price(pool: &SqlitePool, stock_id: i64,
                           date: &str, open: f64,
                           high: f64, low: f64,
                           close: f64, volume: i64) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT OR IGNORE INTO price
+    sqlx::query("INSERT OR IGNORE INTO prices
                     (stock_id, date, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?)")
         .bind(stock_id)
         .bind(date)
@@ -87,5 +88,15 @@ pub async fn update_stock_name(pool: &SqlitePool, symbol: &str, name: &str) -> R
         .execute(pool)
         .await?;
     Ok(())
+}
+
+pub async fn get_prices(pool: &SqlitePool, stock_id:i64) -> Result<Vec<Price>, sqlx::Error>{
+    let prices=  sqlx::query_as::<_, Price>(
+    "SELECT * FROM prices WHERE stock_id = ? ORDER BY date ASC"
+)
+.bind(stock_id)
+.fetch_all(pool)
+.await?;
+Ok(prices)
 }
 

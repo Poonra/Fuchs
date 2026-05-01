@@ -2,6 +2,7 @@ mod cli;
 mod db;
 mod ingest;
 mod models;
+mod indicators;
 
 #[tokio::main]
 async fn main() {
