@@ -33,23 +33,55 @@ pub async fn run(pool: &sqlx::SqlitePool){
 
             match mode {
                 Some("--fundamentals") => {
+                    let force = args.iter().any(|a| a == "--force");
+                    const FRESHNESS_DAYS: i64 = 7;
                     for stock in &stocks {
+                        // Check freshness first
+                        match db::get_fundamentals_age_days(pool, stock.id).await {
+                            Ok(Some(age)) if age < FRESHNESS_DAYS => {
+                                println!("Skip {}: fundamentals are {} day(s) old", stock.symbol, age);
+                                continue;
+                            }
+                            Ok(_) => {} // either no data, or stale data — proceed
+                            Err(e) => {
+                                eprintln!("Failed to check {} freshness: {}", stock.symbol, e);
+                                continue;
+                            }
+                        }
+
                         if let Err(e) = fundamentals::sync_fundamentals(pool, &stock.symbol).await {
                             eprintln!("Failed to sync fundamentals for {}: {}", stock.symbol, e);
                         }
-                        // Alpha Vantage free tier: 5 requests/minute. Sleep 13s between calls.
                         tokio::time::sleep(std::time::Duration::from_secs(13)).await;
                     }
                 }
                 Some("--all") => {
+                    const FRESHNESS_DAYS: i64 = 7;
                     for stock in &stocks {
+                        // Prices: always sync (Yahoo is free, daily updates matter)
                         if let Err(e) = ingest::sync_stock(pool, &stock.symbol).await {
                             eprintln!("Failed to sync prices for {}: {}", stock.symbol, e);
                         }
-                        if let Err(e) = fundamentals::sync_fundamentals(pool, &stock.symbol).await {
-                            eprintln!("Failed to sync fundamentals for {}: {}", stock.symbol, e);
+
+                        // Fundamentals: skip if fresh
+                        let should_fetch = match db::get_fundamentals_age_days(pool, stock.id).await {
+                            Ok(Some(age)) if age < FRESHNESS_DAYS => {
+                                println!("Skip {} fundamentals: {} day(s) old", stock.symbol, age);
+                                false
+                            }
+                            Ok(_) => true,
+                            Err(e) => {
+                                eprintln!("Freshness check failed for {}: {}", stock.symbol, e);
+                                false
+                            }
+                        };
+
+                        if should_fetch {
+                            if let Err(e) = fundamentals::sync_fundamentals(pool, &stock.symbol).await {
+                                eprintln!("Failed to sync fundamentals for {}: {}", stock.symbol, e);
+                            }
+                            tokio::time::sleep(std::time::Duration::from_secs(13)).await;
                         }
-                        tokio::time::sleep(std::time::Duration::from_secs(13)).await;
                     }
                 }
                 None => {
@@ -65,7 +97,7 @@ pub async fn run(pool: &sqlx::SqlitePool){
             }
         }
 
-        
+
 
         Some("score") => {
             match args.get(2).map(|s| s.as_str()) {

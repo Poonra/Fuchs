@@ -196,3 +196,41 @@ pub async fn get_latest_fundamentals(
         .await?;
     Ok(result)
 }
+
+
+pub async fn get_fundamentals_age_days(
+    pool: &SqlitePool,
+    stock_id: i64,
+) -> Result<Option<i64>, sqlx::Error> {
+    let row: Option<(String,)> = sqlx::query_as(
+        "SELECT as_of_date FROM fundamentals WHERE stock_id = ? ORDER BY as_of_date DESC LIMIT 1"
+    )
+        .bind(stock_id)
+        .fetch_optional(pool)
+        .await?;
+
+    let Some((date_str,)) = row else { return Ok(None); };
+
+    // Parse YYYY-MM-DD and compute days from today
+    use time::OffsetDateTime;
+    let parts: Vec<&str> = date_str.split('-').collect();
+    if parts.len() != 3 {
+        return Ok(None);
+    }
+    let year: i32 = match parts[0].parse() { Ok(v) => v, Err(_) => return Ok(None) };
+    let month: u8 = match parts[1].parse() { Ok(v) => v, Err(_) => return Ok(None) };
+    let day: u8 = match parts[2].parse() { Ok(v) => v, Err(_) => return Ok(None) };
+
+    let stored = match time::Date::from_calendar_date(
+        year,
+        time::Month::try_from(month).map_err(|_| sqlx::Error::Decode("bad month".into()))?,
+        day,
+    ) {
+        Ok(d) => d,
+        Err(_) => return Ok(None),
+    };
+
+    let today = OffsetDateTime::now_utc().date();
+    let diff = today - stored;
+    Ok(Some(diff.whole_days()))
+}
