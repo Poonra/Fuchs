@@ -161,23 +161,31 @@
     function renderScore(data) {
         const content = document.getElementById('detail-content');
         const ind = data.indicators;
-        const br = data.breakdown;
+        const c = data.combined;
 
-        const hitsHtml = br.hits.map(h => {
+        const renderHits = (hits) => hits.map(h => {
             const cls = h.points >= 0 ? 'positive' : 'negative';
             const sign = h.points >= 0 ? '+' : '';
             return `<div class="hit ${cls}">${sign}${h.points}  ${h.rule}</div>`;
         }).join('');
 
+        const fundamentalSection = c.fundamental
+            ? `<h3>fundamental: ${c.fundamental.total}/100</h3>${renderHits(c.fundamental.hits)}`
+            : `<h3>fundamental: no data</h3><p style="color:#888">run <code>fuchs sync --fundamentals</code></p>`;
+
         content.innerHTML = `
-                <div class="score-total">score: ${br.total}/100</div>
-                ${renderGauge(br.total)}
-                <p>last close: ${ind.last_close.toFixed(2)}</p>
-                <p>RSI(14): ${ind.rsi.toFixed(2)} · SMA50: ${ind.sma_50.toFixed(2)} · SMA200: ${ind.sma_200.toFixed(2)}</p>
-                <p>MACD: ${ind.macd.toFixed(2)} signal: ${ind.macd_signal.toFixed(2)} hist: ${ind.macd_histogram.toFixed(2)}</p>
-                <p>BB: ${ind.bb_lower.toFixed(2)} / ${ind.bb_middle.toFixed(2)} / ${ind.bb_upper.toFixed(2)}</p>
-                <div class="hits"><h3>breakdown</h3>${hitsHtml}</div>
-            `;
+            <div class="score-total">combined: ${c.total}/100</div>
+            ${renderGauge(c.total)}
+            <p>last close: ${ind.last_close.toFixed(2)}</p>
+            <p>RSI(14): ${ind.rsi.toFixed(2)} · SMA50: ${ind.sma_50.toFixed(2)} · SMA200: ${ind.sma_200.toFixed(2)}</p>
+            <p>MACD: ${ind.macd.toFixed(2)} signal: ${ind.macd_signal.toFixed(2)} hist: ${ind.macd_histogram.toFixed(2)}</p>
+            <p>BB: ${ind.bb_lower.toFixed(2)} / ${ind.bb_middle.toFixed(2)} / ${ind.bb_upper.toFixed(2)}</p>
+            <div class="hits">
+                <h3>technical: ${c.technical.total}/100</h3>
+                ${renderHits(c.technical.hits)}
+                ${fundamentalSection}
+            </div>
+        `;
     }
 
     initChart();

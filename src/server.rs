@@ -5,11 +5,13 @@ use crate::db;
 use crate::models::Stock;
 use axum::extract::Path;
 use crate::indicators::{compute, Indicators};
-use crate::scoring::{score_technical, ScoreBreakdown};
+use crate::scoring::{score_technical, ScoreBreakdown, score_fundamental, score_combined,CombinedScore};
 use crate::models::Price;
 use tower_http::services::ServeDir;
 use std::time::Duration;
 use crate::ingest;
+
+
 
 pub struct AppError(anyhow::Error);
 
@@ -92,7 +94,7 @@ async fn list_stocks(
 struct ScoreResponse {
     symbol: String,
     indicators: Indicators,
-    breakdown: ScoreBreakdown,
+    combined: CombinedScore,
 }
 async fn get_score(
     State(pool): State<SqlitePool>,
@@ -100,12 +102,19 @@ async fn get_score(
 ) -> Result<Json<ScoreResponse>, AppError> {
     let symbol = symbol.to_uppercase();
     let indicators = compute(&pool, &symbol, None).await?;
-    let breakdown = score_technical(&indicators);
-    Ok(Json(ScoreResponse{
+    let tech_breakdown = score_technical(&indicators);
+
+    let stock = db::get_stock_by_symbol(&pool, &symbol).await?
+        .ok_or_else(|| anyhow::anyhow!("stock {} not found", symbol))?;
+    let fundamentals = db::get_latest_fundamentals(&pool, stock.id).await?;
+    let fund_breakdown = fundamentals.as_ref().map(score_fundamental);
+
+    let combined = score_combined(tech_breakdown, fund_breakdown);
+
+    Ok(Json(ScoreResponse {
         symbol,
         indicators,
-        breakdown
-
+        combined,
     }))
 }
 

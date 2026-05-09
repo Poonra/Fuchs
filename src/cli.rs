@@ -65,49 +65,67 @@ pub async fn run(pool: &sqlx::SqlitePool){
             }
         }
 
-        Some("test-fundamentals") => {
-            match args.get(2).map(|s| s.as_str()) {
-                Some(symbol) => {
-                    let symbol = symbol.to_uppercase();
-                    match fundamentals::sync_fundamentals(pool, &symbol).await {
-                        Ok(_) => println!("Test sync OK for {}", symbol),
-                        Err(e) => eprintln!("Test sync failed for {}: {}", symbol, e),
-                    }
-                }
-                None => println!("Usage: fuchs test-fundamentals <SYMBOL>"),
-            }
-        }
+        
 
         Some("score") => {
             match args.get(2).map(|s| s.as_str()) {
                 Some(symbol) => {
-                    let symbol =symbol.to_uppercase();
-                    
+                    let symbol = symbol.to_uppercase();
+
                     let as_of: Option<String> = args.iter()
                         .position(|a| a == "--date")
                         .and_then(|i| args.get(i+1))
                         .cloned();
-                    let result = compute(pool, &symbol, as_of.as_deref()).await
-                        .expect("Failed to compute indicators");
-                    println!("Indicators for {} : ", symbol);
-                    println!("  Last close:      {:.2}", result.last_close);
-                    println!("  RSI(14):         {:.2}", result.rsi);
-                    println!("  SMA(50):         {:.2}", result.sma_50);
-                    println!("  SMA(200):        {:.2}", result.sma_200);
-                    println!("  MACD:            {:.2}", result.macd);
-                    println!("  MACD signal:     {:.2}", result.macd_signal);
-                    println!("  MACD histogram:  {:.2}", result.macd_histogram);
-                    println!("  BB lower:        {:.2}", result.bb_lower);
-                    println!("  BB middle:       {:.2}", result.bb_middle);
-                    println!("  BB upper:        {:.2}", result.bb_upper);
 
-                    let breakdown = scoring::score_technical(&result);
-                    println!("\nTechnical score: {}/100; (50 is neutral)", breakdown.total);
-                    println!("Breakdown:");
-                    for hit in &breakdown.hits {
+                    // Technical
+                    let indicators = compute(pool, &symbol, as_of.as_deref()).await
+                        .expect("Failed to compute indicators");
+                    let tech_breakdown = scoring::score_technical(&indicators);
+
+                    // Fundamental (optional — may be absent)
+                    let stock = db::get_stock_by_symbol(pool, &symbol).await
+                        .expect("DB error")
+                        .expect("Stock not in watchlist");
+                    let fundamentals = db::get_latest_fundamentals(pool, stock.id).await
+                        .expect("DB error");
+                    let fund_breakdown = fundamentals.as_ref().map(scoring::score_fundamental);
+
+                    // Combined
+                    let combined = scoring::score_combined(
+                        tech_breakdown,
+                        fund_breakdown,
+                    );
+
+                    // Output
+                    println!("Score for {}", symbol);
+                    println!("  Last close:      {:.2}", indicators.last_close);
+                    println!("  RSI(14):         {:.2}", indicators.rsi);
+                    println!("  SMA(50):         {:.2}", indicators.sma_50);
+                    println!("  SMA(200):        {:.2}", indicators.sma_200);
+                    println!("  MACD:            {:.2}", indicators.macd);
+                    println!("  BB:              {:.2} / {:.2} / {:.2}",
+                             indicators.bb_lower, indicators.bb_middle, indicators.bb_upper);
+
+                    println!("\nTechnical: {}/100", combined.technical.total);
+                    for hit in &combined.technical.hits {
                         let sign = if hit.points >= 0 { "+" } else { "" };
                         println!("  {}{}  {}", sign, hit.points, hit.rule);
                     }
+
+                    match &combined.fundamental {
+                        Some(f) => {
+                            println!("\nFundamental: {}/100", f.total);
+                            for hit in &f.hits {
+                                let sign = if hit.points >= 0 { "+" } else { "" };
+                                println!("  {}{}  {}", sign, hit.points, hit.rule);
+                            }
+                        }
+                        None => {
+                            println!("\nFundamental: no data (run `fuchs sync --fundamentals`)");
+                        }
+                    }
+
+                    println!("\nCOMBINED: {}/100", combined.total);
                 }
                 None => println!("Usage: fuchs score <SYMBOL>"),
             }

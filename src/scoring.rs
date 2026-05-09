@@ -126,8 +126,8 @@ pub fn score_fundamental(f: &Fundamentals) -> ScoreBreakdown {
             hits.push(RuleHit { rule: "P/E < 15 (cheap)".into(), points: 15 });
         } else if pe >= 15.0 && pe <= 25.0 {
             hits.push(RuleHit { rule: "P/E 15-25 (fair)".into(), points: 5 });
-        } else if pe > 40.0 {
-            hits.push(RuleHit { rule: "P/E > 40 (expensive)".into(), points: -10 });
+        } else if pe > 30.0 {
+            hits.push(RuleHit { rule: "P/E > 30 (expensive)".into(), points: -10 });
         }
         // negative P/E = company losing money
         if pe < 0.0 {
@@ -140,7 +140,7 @@ pub fn score_fundamental(f: &Fundamentals) -> ScoreBreakdown {
             hits.push(RuleHit { rule: "PEG < 1 (cheap vs growth)".into(), points: 15 });
         } else if peg >= 1.0 && peg <= 2.0 {
             hits.push(RuleHit { rule: "PEG 1-2 (fair vs growth)".into(), points: 5 });
-        } else if peg > 3.0 {
+        } else if peg > 2.0 {
             hits.push(RuleHit { rule: "PEG > 3 (expensive vs growth)".into(), points: -10 });
         }
     }
@@ -157,7 +157,7 @@ pub fn score_fundamental(f: &Fundamentals) -> ScoreBreakdown {
     }
 
     if let Some(roe) = f.roe {
-        
+
         let capped = roe.min(0.50);
         if capped > 0.20 {
             hits.push(RuleHit { rule: "ROE > 20%".into(), points: 10 });
@@ -209,4 +209,27 @@ pub fn score_fundamental(f: &Fundamentals) -> ScoreBreakdown {
     let total = (50 + raw).clamp(0, 100);
 
     ScoreBreakdown { total, hits }
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct CombinedScore {
+    pub total: i32,
+    pub technical: ScoreBreakdown,
+    pub fundamental: Option<ScoreBreakdown>,
+}
+
+pub fn score_combined(
+    technical: ScoreBreakdown,
+    fundamental: Option<ScoreBreakdown>,
+) -> CombinedScore {
+    let total = match &fundamental {
+        Some(f) => {
+            // 60% technical, 40% fundamental
+            let weighted = (technical.total as f64 * 0.6) + (f.total as f64 * 0.4);
+            weighted.round() as i32
+        }
+        None => technical.total,
+    };
+
+    CombinedScore { total, technical, fundamental }
 }
