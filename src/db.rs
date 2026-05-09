@@ -1,5 +1,5 @@
 use sqlx::SqlitePool;
-use crate::models::{Stock, Price};
+use crate::models::{Stock, Price, Fundamentals};
 
 pub async fn init_db() -> Result<SqlitePool, sqlx::Error> {
 
@@ -184,3 +184,15 @@ pub async fn insert_fundamentals(
     Ok(())
 }
 
+pub async fn get_latest_fundamentals(
+    pool: &SqlitePool,
+    stock_id: i64,
+) -> Result<Option<Fundamentals>, sqlx::Error> {
+    let result = sqlx::query_as::<_, Fundamentals>(
+        "SELECT * FROM fundamentals WHERE stock_id = ? ORDER BY as_of_date DESC LIMIT 1"
+    )
+        .bind(stock_id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(result)
+}
