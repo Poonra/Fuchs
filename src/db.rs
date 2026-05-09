@@ -33,6 +33,31 @@ pub async fn init_db() -> Result<SqlitePool, sqlx::Error> {
 .execute(&pool)
 .await?;
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS fundamentals (
+    id INTEGER PRIMARY KEY,
+    stock_id INTEGER NOT NULL,
+    as_of_date TEXT NOT NULL,       -- YYYY-MM-DD when we fetched it
+    sector TEXT,
+    market_cap REAL,
+    pe_ratio REAL,
+    peg_ratio REAL,
+    pb_ratio REAL,
+    eps REAL,
+    dividend_yield REAL,
+    profit_margin REAL,
+    roe REAL,                        -- ReturnOnEquityTTM
+    debt_to_equity REAL,
+    revenue_ttm REAL,
+    quarterly_revenue_growth REAL,
+    quarterly_earnings_growth REAL,
+    FOREIGN KEY(stock_id) REFERENCES stocks(id),
+    UNIQUE(stock_id, as_of_date)
+);"
+    )
+        .execute(&pool)
+        .await?;
+
 Ok(pool)
 
 }
@@ -110,5 +135,52 @@ pub async fn get_prices(pool: &SqlitePool, stock_id:i64, as_of: Option<&str>,) -
         }
     };
     Ok(prices)
+}
+
+pub async fn insert_fundamentals(
+    pool: &SqlitePool,
+    stock_id: i64,
+    as_of_date: &str,
+    sector: Option<&str>,
+    market_cap: Option<f64>,
+    pe_ratio: Option<f64>,
+    peg_ratio: Option<f64>,
+    pb_ratio: Option<f64>,
+    eps: Option<f64>,
+    dividend_yield: Option<f64>,
+    profit_margin: Option<f64>,
+    roe: Option<f64>,
+    debt_to_equity: Option<f64>,
+    revenue_ttm: Option<f64>,
+    quarterly_revenue_growth: Option<f64>,
+    quarterly_earnings_growth: Option<f64>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT OR IGNORE INTO fundamentals (
+            stock_id, as_of_date, sector, market_cap, pe_ratio, peg_ratio,
+            pb_ratio, eps, dividend_yield, profit_margin, roe,
+            debt_to_equity, revenue_ttm, quarterly_revenue_growth,
+            quarterly_earnings_growth
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+        .bind(stock_id)
+        .bind(as_of_date)
+        .bind(sector)
+        .bind(market_cap)
+        .bind(pe_ratio)
+        .bind(peg_ratio)
+        .bind(pb_ratio)
+        .bind(eps)
+        .bind(dividend_yield)
+        .bind(profit_margin)
+        .bind(roe)
+        .bind(debt_to_equity)
+        .bind(revenue_ttm)
+        .bind(quarterly_revenue_growth)
+        .bind(quarterly_earnings_growth)
+
+        .execute(pool)
+        .await?;
+    Ok(())
 }
 
