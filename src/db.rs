@@ -60,6 +60,23 @@ pub async fn init_db() -> Result<SqlitePool, sqlx::Error> {
         .execute(&pool)
         .await?;
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS score_history (
+    id INTEGER PRIMARY KEY,
+    stock_id INTEGER NOT NULL,
+    date TEXT NOT NULL,       -- YYYY-MM-DD when we fetched it
+    technical INTEGER NOT NULL,
+    fundamental INTEGER,
+    combined INTEGER NOT NULL,
+    FOREIGN KEY(stock_id) REFERENCES stocks(id),
+    UNIQUE(stock_id, date)
+);"
+    )
+        .execute(&pool)
+        .await?;
+
+
+
 Ok(pool)
 
 }
@@ -235,4 +252,21 @@ pub async fn get_fundamentals_age_days(
     let today = OffsetDateTime::now_utc().date();
     let diff = today - stored;
     Ok(Some(diff.whole_days()))
+}
+
+pub async fn insert_score_history(pool: &SqlitePool, stock_id: i64,
+                          date: &str, technical: i32,
+                          fundamental: Option<i32>, combined: i32,
+                      ) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT OR IGNORE INTO score_history
+                    (stock_id, date, technical, fundamental, combined) VALUES (?, ?, ?, ?, ?)")
+        .bind(stock_id)
+        .bind(date)
+        .bind(technical)
+        .bind(fundamental)
+        .bind(combined)
+        .execute(pool).await?;
+
+    Ok(())
+
 }

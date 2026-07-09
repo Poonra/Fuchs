@@ -111,6 +111,16 @@ async fn get_score(
 
     let combined = score_combined(tech_breakdown, fund_breakdown);
 
+    let today = time::OffsetDateTime::now_utc().date().to_string();
+    if let Err(e) = db::insert_score_history(
+        &pool, stock.id, &today,
+        combined.technical.total,
+        combined.fundamental.as_ref().map(|f| f.total),
+        combined.total,
+    ).await {
+        eprintln!("Failed to insert score for {}: {}", stock.symbol, e);
+
+}
     Ok(Json(ScoreResponse {
         symbol,
         indicators,

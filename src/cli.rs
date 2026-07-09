@@ -128,6 +128,18 @@ pub async fn run(pool: &sqlx::SqlitePool){
                         fund_breakdown,
                     );
 
+                    if as_of.is_none() {
+                        let today = time::OffsetDateTime::now_utc().date().to_string();
+                        if let Err(e) = db::insert_score_history(
+                            pool, stock.id, &today,
+                            combined.technical.total,
+                            combined.fundamental.as_ref().map(|f| f.total),
+                            combined.total,
+                        ).await {
+                            eprintln!("Failed to insert score for {}: {}", stock.symbol, e);
+                        }
+                    }
+
                     // Output
                     println!("Score for {}", symbol);
                     println!("  Last close:      {:.2}", indicators.last_close);
