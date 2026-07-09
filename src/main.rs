@@ -10,7 +10,8 @@ mod fundamentals;
 #[tokio::main]
 async fn main() {
 
-    dotenvy::dotenv().ok();
+    dotenvy::from_path("C:/Users/poonr/Desktop/Project/Fuchs/.env").ok();
+    dotenvy::dotenv().ok(); // fallback: load from cwd if above path missingh
     let pool = db::init_db().await.expect("Failed to init DB");
 
 

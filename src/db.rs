@@ -3,7 +3,9 @@ use crate::models::{Stock, Price, Fundamentals};
 
 pub async fn init_db() -> Result<SqlitePool, sqlx::Error> {
 
-    let pool = SqlitePool::connect("sqlite:fuchs.db?mode=rwc").await?;
+    let db_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "sqlite:C:/Users/poonr/Desktop/Project/Fuchs/fuchs.db?mode=rwc".to_string());
+    let pool = SqlitePool::connect(&db_url).await?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS stocks(

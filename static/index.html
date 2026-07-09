@@ -1,194 +1,722 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>fuchs</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fuchs</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
     <style>
-        body { font-family: monospace; margin: 2rem; background: #111; color: #eee; }
-        h1 { color: #f80; }
-        .layout { display: flex; gap: 2rem; }
-        .watchlist { min-width: 200px; }
-        .watchlist ul { list-style: none; padding: 0; }
-        .watchlist li { padding: 0.5rem; cursor: pointer; border: 1px solid #333; margin-bottom: 0.25rem; }
-        .watchlist li:hover { background: #222; }
-        .watchlist li.active { background: #333; border-color: #f80; }
-        .detail { flex: 1; }
-        .score-total { font-size: 2rem; color: #f80; }
-        .hits { margin-top: 1rem; }
-        .hit { padding: 0.25rem 0; border-bottom: 1px solid #222; }
-        .hit.positive { color: #6f6; }
-        .hit.negative { color: #f66; }
-        #chart-container { width: 100%; height: 400px; margin-top: 1rem; }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-        .gauge {
+        :root {
+            --bg:        #09090b;
+            --surface:   #18181b;
+            --surface-2: #1f1f23;
+            --border:    #27272a;
+            --border-2:  #3f3f46;
+            --accent:    #f59e0b;
+            --accent-dim:#78450a;
+            --text-1:    #fafafa;
+            --text-2:    #a1a1aa;
+            --text-3:    #52525b;
+            --green:     #22c55e;
+            --red:       #ef4444;
+            --green-dim: #14532d;
+            --red-dim:   #7f1d1d;
+            --sidebar-w: 260px;
+            --radius:    8px;
+        }
+
+        html, body {
+            height: 100%;
+            background: var(--bg);
+            color: var(--text-1);
+            font-family: 'Inter', system-ui, sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        /* ── Layout ── */
+        .shell {
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* ── Sidebar ── */
+        .sidebar {
+            width: var(--sidebar-w);
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            overflow: hidden;
+        }
+
+        .sidebar-header {
+            padding: 20px 20px 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .logo {
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            color: var(--accent);
+        }
+
+        .logo span {
+            color: var(--text-2);
+            font-weight: 400;
+        }
+
+        .sidebar-label {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-3);
+            padding: 16px 20px 8px;
+        }
+
+        .watchlist {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 8px 8px;
+        }
+
+        .watchlist::-webkit-scrollbar { width: 4px; }
+        .watchlist::-webkit-scrollbar-track { background: transparent; }
+        .watchlist::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 2px; }
+
+        .stock-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            border-radius: var(--radius);
+            cursor: pointer;
+            transition: background 0.15s;
+            color: var(--text-2);
+            user-select: none;
+        }
+
+        .stock-item:hover { background: var(--surface-2); color: var(--text-1); }
+
+        .stock-item.active {
+            background: var(--surface-2);
+            color: var(--text-1);
+            border: 1px solid var(--border-2);
+        }
+
+        .stock-symbol {
+            font-weight: 600;
+            font-size: 13px;
+            letter-spacing: 0.02em;
+        }
+
+        .stock-name {
+            font-size: 11px;
+            color: var(--text-3);
+            margin-top: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 160px;
+        }
+
+        .stock-badge {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 6px;
+            border-radius: 4px;
+            flex-shrink: 0;
+        }
+
+        .badge-green { background: var(--green-dim); color: var(--green); }
+        .badge-red   { background: var(--red-dim);   color: var(--red);   }
+        .badge-neutral { background: var(--surface); color: var(--text-3); border: 1px solid var(--border); }
+
+        /* ── Main ── */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+            flex-shrink: 0;
+        }
+
+        .topbar-symbol {
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .topbar-name {
+            font-size: 13px;
+            color: var(--text-2);
+        }
+
+        .topbar-score-pill {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 13px;
+            border: 1px solid var(--border-2);
+            background: var(--surface-2);
+        }
+
+        .score-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .content::-webkit-scrollbar { width: 6px; }
+        .content::-webkit-scrollbar-track { background: transparent; }
+        .content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+        /* ── Empty state ── */
+        .empty-state {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            color: var(--text-3);
+        }
+
+        .empty-state-title {
+            font-size: 16px;
+            font-weight: 500;
+            color: var(--text-2);
+        }
+
+        /* ── Cards ── */
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+        }
+
+        .card-header {
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border);
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-2);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .card-body { padding: 18px; }
+
+        /* ── Chart ── */
+        #chart-container {
+            width: 100%;
+            height: 340px;
+        }
+
+        /* ── Score row ── */
+        .score-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        /* ── Score block ── */
+        .score-block {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .score-ring-wrap {
             position: relative;
-            height: 20px;
-            background: #222;
-            border: 1px solid #444;
-            margin: 0.5rem 0 1rem;
+            flex-shrink: 0;
         }
-        .gauge-center {
-            position: absolute;
-            left: 50%;
-            top: 0;
-            bottom: 0;
-            width: 2px;
-            background: #888;
+
+        .score-ring {
+            transform: rotate(-90deg);
         }
-        .gauge-fill {
+
+        .score-ring-num {
             position: absolute;
-            top: 0;
-            bottom: 0;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: -1px;
+        }
+
+        .score-meta { flex: 1; }
+
+        .score-label {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-3);
+            margin-bottom: 6px;
+        }
+
+        /* ── Gauge bar ── */
+        .gauge-bar {
+            position: relative;
+            height: 6px;
+            background: var(--surface-2);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 6px;
+        }
+
+        .gauge-bar-fill {
+            position: absolute;
+            top: 0; bottom: 0;
+            border-radius: 3px;
+            transition: width 0.4s ease;
+        }
+
+        /* ── Indicators grid ── */
+        .indicators-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 12px;
+        }
+
+        .ind-cell {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 12px 14px;
+        }
+
+        .ind-label {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-3);
+            margin-bottom: 4px;
+        }
+
+        .ind-value {
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: -0.5px;
+        }
+
+        /* ── Rules list ── */
+        .rules-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+        }
+
+        .rule-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 18px;
+            border-bottom: 1px solid var(--border);
+            gap: 12px;
+        }
+
+        .rule-row:last-child { border-bottom: none; }
+
+        .rule-text {
+            font-size: 13px;
+            color: var(--text-2);
+            flex: 1;
+        }
+
+        .rule-pts {
+            font-size: 12px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 4px;
+            flex-shrink: 0;
+            letter-spacing: 0.03em;
+        }
+
+        .pts-pos { background: var(--green-dim); color: var(--green); }
+        .pts-neg { background: var(--red-dim);   color: var(--red);   }
+
+        .no-data-msg {
+            padding: 24px 18px;
+            color: var(--text-3);
+            font-size: 13px;
+        }
+
+        .no-data-msg code {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: var(--text-2);
         }
     </style>
 </head>
 <body>
-<h1>fuchs</h1>
+<div class="shell">
 
-<div class="layout">
-    <div class="watchlist">
-        <h2>watchlist</h2>
-        <ul id="watchlist-ul">loading...</ul>
-    </div>
+    <!-- ── Sidebar ── -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">fuchs<span>.rs</span></div>
+        </div>
+        <div class="sidebar-label">Watchlist</div>
+        <div class="watchlist" id="watchlist-ul">
+            <div style="padding: 12px; color: var(--text-3); font-size: 13px;">Loading…</div>
+        </div>
+    </aside>
 
-    <div class="detail">
-        <h2 id="detail-symbol">select a stock</h2>
-        <div id="chart-container"></div>
-        <div id="detail-content"></div>
-    </div>
+    <!-- ── Main ── -->
+    <main class="main">
+
+        <!-- Topbar (hidden until stock selected) -->
+        <div class="topbar" id="topbar" style="display:none;">
+            <div>
+                <div class="topbar-symbol" id="topbar-symbol">—</div>
+                <div class="topbar-name" id="topbar-name"></div>
+            </div>
+            <div class="topbar-score-pill" id="topbar-pill" style="display:none;">
+                <div class="score-dot" id="topbar-dot"></div>
+                <span id="topbar-score-text"></span>
+            </div>
+        </div>
+
+        <!-- Content -->
+        <div class="content" id="content">
+            <div class="empty-state">
+                <div class="topbar-symbol" style="font-size:32px;color:var(--border-2);">←</div>
+                <div class="empty-state-title">Select a stock</div>
+                <div style="font-size:13px;">Choose a ticker from the watchlist to begin</div>
+            </div>
+        </div>
+
+    </main>
 </div>
 
 <script>
-    let chart = null;
-    let candleSeries = null;
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    function scoreColor(s) {
+        if (s >= 60) return 'var(--green)';
+        if (s <= 40) return 'var(--red)';
+        return 'var(--accent)';
+    }
 
-    function initChart() {
+    function scoreBadgeClass(s) {
+        if (s >= 60) return 'badge-green';
+        if (s <= 40) return 'badge-red';
+        return 'badge-neutral';
+    }
+
+    function buildRing(score, size = 72) {
+        const r = (size - 8) / 2;
+        const circ = 2 * Math.PI * r;
+        const fill = (score / 100) * circ;
+        const color = scoreColor(score);
+        return `
+            <div class="score-ring-wrap" style="width:${size}px;height:${size}px;">
+                <svg class="score-ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+                    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="var(--surface-2)" stroke-width="7"/>
+                    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${color}" stroke-width="7"
+                        stroke-dasharray="${fill} ${circ}" stroke-linecap="round"/>
+                </svg>
+                <div class="score-ring-num" style="color:${color}">${score}</div>
+            </div>`;
+    }
+
+    function buildGauge(score) {
+        const offset = score - 50;
+        const width = Math.abs(offset);
+        const color = offset >= 0 ? 'var(--green)' : 'var(--red)';
+        const side   = offset >= 0 ? 'left' : 'right';
+        return `<div class="gauge-bar">
+            <div class="gauge-bar-fill" style="${side}:50%;width:${width}%;background:${color};"></div>
+        </div>`;
+    }
+
+    function buildRules(hits) {
+        if (!hits.length) return '<div class="no-data-msg">No rules fired.</div>';
+        return hits.map(h => {
+            const sign = h.points >= 0 ? '+' : '';
+            const cls  = h.points >= 0 ? 'pts-pos' : 'pts-neg';
+            return `<div class="rule-row">
+                <div class="rule-text">${h.rule}</div>
+                <div class="rule-pts ${cls}">${sign}${h.points}</div>
+            </div>`;
+        }).join('');
+    }
+
+    // ── Chart ────────────────────────────────────────────────────────────────
+    let chart = null, candleSeries = null;
+
+    function ensureChart() {
         const container = document.getElementById('chart-container');
+        if (chart) { chart.resize(container.clientWidth, 340); return; }
         chart = LightweightCharts.createChart(container, {
-            layout: {
-                background: { color: '#111' },
-                textColor: '#eee',
-            },
-            grid: {
-                vertLines: { color: '#222' },
-                horzLines: { color: '#222' },
-            },
+            layout: { background: { color: '#18181b' }, textColor: '#a1a1aa' },
+            grid:   { vertLines: { color: '#27272a' }, horzLines: { color: '#27272a' } },
+            crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+            rightPriceScale: { borderColor: '#27272a' },
+            timeScale: { borderColor: '#27272a', timeVisible: true },
             width: container.clientWidth,
-            height: 400,
+            height: 340,
         });
         candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
-            upColor: '#6f6',
-            downColor: '#f66',
-            borderUpColor: '#6f6',
-            borderDownColor: '#f66',
-            wickUpColor: '#6f6',
-            wickDownColor: '#f66',
+            upColor: '#22c55e', downColor: '#ef4444',
+            borderUpColor: '#22c55e', borderDownColor: '#ef4444',
+            wickUpColor: '#22c55e', wickDownColor: '#ef4444',
+        });
+        window.addEventListener('resize', () => {
+            if (chart) chart.resize(container.clientWidth, 340);
         });
     }
 
+    // ── Watchlist ────────────────────────────────────────────────────────────
     async function loadWatchlist() {
         const res = await fetch('/api/stocks');
         const stocks = await res.json();
         const ul = document.getElementById('watchlist-ul');
-        ul.innerHTML = '';
 
-        if (stocks.length === 0) {
-            ul.innerHTML = '<li>empty. add stocks via CLI.</li>';
+        if (!stocks.length) {
+            ul.innerHTML = '<div style="padding:12px;color:var(--text-3);font-size:13px;">Empty — add stocks via CLI.</div>';
             return;
         }
 
+        ul.innerHTML = '';
         for (const stock of stocks) {
-            const li = document.createElement('li');
-            li.textContent = `${stock.symbol}${stock.name ? ' — ' + stock.name : ''}`;
-            li.addEventListener('click', () => selectStock(stock.symbol, li));
-            ul.appendChild(li);
+            const item = document.createElement('div');
+            item.className = 'stock-item';
+            item.dataset.symbol = stock.symbol;
+            item.innerHTML = `
+                <div>
+                    <div class="stock-symbol">${stock.symbol}</div>
+                    ${stock.name ? `<div class="stock-name">${stock.name}</div>` : ''}
+                </div>
+                <div class="stock-badge badge-neutral" id="badge-${stock.symbol}">—</div>`;
+            item.addEventListener('click', () => selectStock(stock, item));
+            ul.appendChild(item);
+        }
+
+        // Prefetch scores for badges (best-effort, non-blocking)
+        for (const stock of stocks) {
+            fetch(`/api/stocks/${stock.symbol}/score`)
+                .then(r => r.ok ? r.json() : null)
+                .then(data => {
+                    if (!data) return;
+                    const badge = document.getElementById(`badge-${stock.symbol}`);
+                    if (!badge) return;
+                    const s = data.combined.total;
+                    badge.textContent = s;
+                    badge.className = `stock-badge ${scoreBadgeClass(s)}`;
+                })
+                .catch(() => {});
         }
     }
 
-    async function selectStock(symbol, liElement) {
-        document.querySelectorAll('.watchlist li').forEach(el => el.classList.remove('active'));
-        liElement.classList.add('active');
+    // ── Stock detail ─────────────────────────────────────────────────────────
+    async function selectStock(stock, el) {
+        document.querySelectorAll('.stock-item').forEach(i => i.classList.remove('active'));
+        el.classList.add('active');
 
-        document.getElementById('detail-symbol').textContent = symbol;
-        const content = document.getElementById('detail-content');
-        content.innerHTML = 'loading...';
+        // Show topbar
+        const topbar = document.getElementById('topbar');
+        topbar.style.display = 'flex';
+        document.getElementById('topbar-symbol').textContent = stock.symbol;
+        document.getElementById('topbar-name').textContent = stock.name ?? '';
+        document.getElementById('topbar-pill').style.display = 'none';
+
+        // Loading placeholder
+        document.getElementById('content').innerHTML = `
+            <div class="card">
+                <div class="card-header">Price chart</div>
+                <div style="height:340px;display:flex;align-items:center;justify-content:center;color:var(--text-3);">
+                    Loading…
+                </div>
+            </div>`;
 
         try {
             const [scoreRes, pricesRes] = await Promise.all([
-                fetch(`/api/stocks/${symbol}/score`),
-                fetch(`/api/stocks/${symbol}/prices`),
+                fetch(`/api/stocks/${stock.symbol}/score`),
+                fetch(`/api/stocks/${stock.symbol}/prices`),
             ]);
-            if (!scoreRes.ok) throw new Error(`score: HTTP ${scoreRes.status}`);
-            if (!pricesRes.ok) throw new Error(`prices: HTTP ${pricesRes.status}`);
+            if (!scoreRes.ok || !pricesRes.ok) throw new Error('Fetch failed');
 
-            const scoreData = await scoreRes.json();
+            const scoreData  = await scoreRes.json();
             const pricesData = await pricesRes.json();
 
-            renderScore(scoreData);
-            renderChart(pricesData);
+            renderDetail(stock, scoreData, pricesData);
         } catch (err) {
-            content.innerHTML = `<p style="color:#f66">error: ${err.message}</p>`;
+            document.getElementById('content').innerHTML =
+                `<div class="card"><div class="card-body" style="color:var(--red);">Error: ${err.message}</div></div>`;
         }
     }
 
-    function renderChart(prices) {
-        const candles = prices.map(p => ({
-            time: p.date,
-            open: p.open,
-            high: p.high,
-            low: p.low,
-            close: p.close,
+    function renderDetail(stock, scoreData, pricesData) {
+        const ind = scoreData.indicators;
+        const c   = scoreData.combined;
+
+        // Topbar pill
+        const pill = document.getElementById('topbar-pill');
+        pill.style.display = 'flex';
+        document.getElementById('topbar-dot').style.background = scoreColor(c.total);
+        document.getElementById('topbar-score-text').textContent = `Combined ${c.total}/100`;
+
+        // Fund block HTML
+        const fundBlock = c.fundamental
+            ? `<div class="score-block">
+                    ${buildRing(c.fundamental.total)}
+                    <div class="score-meta">
+                        <div class="score-label">Fundamental</div>
+                        <div style="font-size:12px;color:var(--text-2);">${c.fundamental.hits.length} rules fired</div>
+                        ${buildGauge(c.fundamental.total)}
+                    </div>
+               </div>`
+            : `<div style="display:flex;flex-direction:column;justify-content:center;gap:6px;color:var(--text-3);padding:8px 0;">
+                    <div style="font-size:13px;color:var(--text-2);font-weight:500;">No fundamental data</div>
+                    <div style="font-size:12px;">Run <code style="background:var(--surface-2);border:1px solid var(--border);padding:1px 5px;border-radius:4px;color:var(--text-2);">fuchs sync --fundamentals</code></div>
+               </div>`;
+
+        document.getElementById('content').innerHTML = `
+
+            <!-- Chart -->
+            <div class="card">
+                <div class="card-header">
+                    Price chart
+                    <span style="color:var(--text-3);font-weight:400;text-transform:none;letter-spacing:0;">5y daily</span>
+                </div>
+                <div id="chart-container"></div>
+            </div>
+
+            <!-- Score row -->
+            <div class="score-row">
+
+                <div class="card">
+                    <div class="card-header">Technical score</div>
+                    <div class="card-body">
+                        <div class="score-block">
+                            ${buildRing(c.technical.total)}
+                            <div class="score-meta">
+                                <div class="score-label">Technical</div>
+                                <div style="font-size:12px;color:var(--text-2);">${c.technical.hits.length} rules fired</div>
+                                ${buildGauge(c.technical.total)}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">Fundamental score</div>
+                    <div class="card-body">${fundBlock}</div>
+                </div>
+
+            </div>
+
+            <!-- Indicators -->
+            <div class="card">
+                <div class="card-header">Indicators</div>
+                <div class="card-body">
+                    <div class="indicators-grid">
+                        ${indCell('Last Close', ind.last_close.toFixed(2))}
+                        ${indCell('RSI (14)',   ind.rsi.toFixed(2),   rsiColor(ind.rsi))}
+                        ${indCell('SMA 50',     ind.sma_50.toFixed(2))}
+                        ${indCell('SMA 200',    ind.sma_200.toFixed(2))}
+                        ${indCell('MACD',       ind.macd.toFixed(3),       ind.macd > ind.macd_signal ? 'var(--green)' : 'var(--red)')}
+                        ${indCell('Signal',     ind.macd_signal.toFixed(3))}
+                        ${indCell('Histogram',  ind.macd_histogram.toFixed(3), ind.macd_histogram > 0 ? 'var(--green)' : 'var(--red)')}
+                        ${indCell('BB Lower',   ind.bb_lower.toFixed(2))}
+                        ${indCell('BB Mid',     ind.bb_middle.toFixed(2))}
+                        ${indCell('BB Upper',   ind.bb_upper.toFixed(2))}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Rules -->
+            <div class="score-row">
+
+                <div class="card">
+                    <div class="card-header">
+                        Technical rules
+                        <span style="color:var(--text-3);font-weight:500;text-transform:none;letter-spacing:0;">${c.technical.total}/100</span>
+                    </div>
+                    <div class="rules-list">${buildRules(c.technical.hits)}</div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        Fundamental rules
+                        ${c.fundamental
+                            ? `<span style="color:var(--text-3);font-weight:500;text-transform:none;letter-spacing:0;">${c.fundamental.total}/100</span>`
+                            : ''}
+                    </div>
+                    ${c.fundamental
+                        ? `<div class="rules-list">${buildRules(c.fundamental.hits)}</div>`
+                        : `<div class="no-data-msg">No data — run <code>fuchs sync --fundamentals</code></div>`}
+                </div>
+
+            </div>
+        `;
+
+        // Mount chart after DOM is ready
+        ensureChart();
+        const candles = pricesData.map(p => ({
+            time: p.date, open: p.open, high: p.high, low: p.low, close: p.close,
         }));
         candleSeries.setData(candles);
         chart.timeScale().fitContent();
     }
-    function renderGauge(score) {
-        const offset = score - 50;
-        const width = Math.abs(offset);
-        // bullish: anchor LEFT edge at 50%, grow right
-        // bearish: anchor RIGHT edge at 50%, grow left
-        const side = offset >= 0 ? 'left' : 'right';
-        const color = offset >= 0 ? '#6f6' : '#f66';
 
-        return `
-        <div class="gauge">
-            <div class="gauge-center"></div>
-            <div class="gauge-fill" style="${side}: 50%; width: ${width}%; background: ${color};"></div>
-        </div>
-    `;
-    }
-    function renderScore(data) {
-        const content = document.getElementById('detail-content');
-        const ind = data.indicators;
-        const c = data.combined;
-
-        const renderHits = (hits) => hits.map(h => {
-            const cls = h.points >= 0 ? 'positive' : 'negative';
-            const sign = h.points >= 0 ? '+' : '';
-            return `<div class="hit ${cls}">${sign}${h.points}  ${h.rule}</div>`;
-        }).join('');
-
-        const fundamentalSection = c.fundamental
-            ? `<h3>fundamental: ${c.fundamental.total}/100</h3>${renderHits(c.fundamental.hits)}`
-            : `<h3>fundamental: no data</h3><p style="color:#888">run <code>fuchs sync --fundamentals</code></p>`;
-
-        content.innerHTML = `
-            <div class="score-total">combined: ${c.total}/100</div>
-            ${renderGauge(c.total)}
-            <p>last close: ${ind.last_close.toFixed(2)}</p>
-            <p>RSI(14): ${ind.rsi.toFixed(2)} · SMA50: ${ind.sma_50.toFixed(2)} · SMA200: ${ind.sma_200.toFixed(2)}</p>
-            <p>MACD: ${ind.macd.toFixed(2)} signal: ${ind.macd_signal.toFixed(2)} hist: ${ind.macd_histogram.toFixed(2)}</p>
-            <p>BB: ${ind.bb_lower.toFixed(2)} / ${ind.bb_middle.toFixed(2)} / ${ind.bb_upper.toFixed(2)}</p>
-            <div class="hits">
-                <h3>technical: ${c.technical.total}/100</h3>
-                ${renderHits(c.technical.hits)}
-                ${fundamentalSection}
-            </div>
-        `;
+    function indCell(label, value, color) {
+        const colorStyle = color ? `style="color:${color}"` : '';
+        return `<div class="ind-cell">
+            <div class="ind-label">${label}</div>
+            <div class="ind-value" ${colorStyle}>${value}</div>
+        </div>`;
     }
 
-    initChart();
+    function rsiColor(rsi) {
+        if (rsi < 30) return 'var(--green)';
+        if (rsi > 70) return 'var(--red)';
+        return 'var(--text-1)';
+    }
+
+    // ── Boot ─────────────────────────────────────────────────────────────────
     loadWatchlist();
 </script>
 </body>
