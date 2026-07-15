@@ -75,10 +75,60 @@ pub async fn init_db() -> Result<SqlitePool, sqlx::Error> {
         .execute(&pool)
         .await?;
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS news_sources (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,      -- 'SET disclosures', 'Kaohoon', ...
+    kind TEXT NOT NULL,             -- 'rss' | 'scrape' | 'line'
+    url TEXT,                       -- feed/endpoint URL, NULL for 'line'
+    enabled INTEGER NOT NULL DEFAULT 1
+);"
+    )
+        .execute(&pool)
+        .await?;
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS articles (
+    id INTEGER PRIMARY KEY,
+    source_id INTEGER NOT NULL,
+    url TEXT NOT NULL,
+    url_hash TEXT NOT NULL UNIQUE,  -- sha256(url) = dedup key
+    title TEXT NOT NULL,
+    body TEXT,                      -- FULL text, kept for later ML
+    published_at TEXT,              -- ISO timestamp from the source
+    fetched_at TEXT NOT NULL,       -- when WE stored it
+    FOREIGN KEY(source_id) REFERENCES news_sources(id)
+);"
+    )
+        .execute(&pool)
+        .await?;
 
-Ok(pool)
+sqlx::query(
+    "CREATE TABLE IF NOT EXISTS article_tickers (
+    id INTEGER PRIMARY KEY,
+    article_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    sentiment INTEGER,              -- -1/0/+1, NULL until LLM-tagged
+    relevance REAL,                 -- NULL until tagged
+    summary TEXT,                   -- NULL until tagged
+    FOREIGN KEY(article_id) REFERENCES articles(id),
+    UNIQUE(article_id, symbol)
+);"
+)
+    .execute(&pool)
+    .await?;
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS ticker_aliases (
+    id INTEGER PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    alias TEXT NOT NULL,
+    UNIQUE(symbol, alias)
+);"
+    )
+        .execute(&pool)
+        .await?;
+    Ok(pool)
 }
 
 pub async fn  add_stock(pool: &SqlitePool, symbol: &str) -> Result<(), sqlx::Error>{
@@ -269,4 +319,40 @@ pub async fn insert_score_history(pool: &SqlitePool, stock_id: i64,
 
     Ok(())
 
+}
+
+pub async fn ensure_source(pool: &SqlitePool, name: &str, kind: &str, url: &str) -> Result<i64, sqlx::Error> {
+    sqlx::query("INSERT OR IGNORE INTO news_sources (name, kind, url) VALUES (?, ?, ?)")
+        .bind(name).bind(kind).bind(url)
+        .execute(pool)
+        .await?;
+
+    sqlx::query_scalar("SELECT id FROM news_sources WHERE name = ?")
+        .bind(name)
+        .fetch_one(pool)
+        .await
+}
+pub async fn insert_article(
+pool: &SqlitePool, source_id: i64, url: &str, url_hash: &str,
+title: &str, body: Option<&str>, published_at: Option<&str>, fetched_at: &str,
+) -> Result<bool, sqlx::Error> {
+let res = sqlx::query(
+"INSERT OR IGNORE INTO articles (source_id, url, url_hash, title, body, published_at, fetched_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)")
+.bind(source_id).bind(url).bind(url_hash)
+.bind(title).bind(body).bind(published_at).bind(fetched_at)
+.execute(pool)
+.await?;
+Ok(res.rows_affected() > 0)
+}
+
+pub async fn list_articles(pool: &SqlitePool, limit: i64) -> Result<Vec<(String, String)>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT substr(COALESCE(published_at, fetched_at), 1, 10), title
+         FROM articles
+         ORDER BY COALESCE(published_at, fetched_at) DESC
+         LIMIT ?")
+        .bind(limit)
+        .fetch_all(pool)
+        .await
 }

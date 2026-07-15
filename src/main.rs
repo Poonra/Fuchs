@@ -6,6 +6,7 @@ mod indicators;
 mod scoring;
 mod server;
 mod fundamentals;
+mod news;
 
 #[tokio::main]
 async fn main() {

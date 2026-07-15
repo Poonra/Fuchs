@@ -4,7 +4,7 @@ use crate::indicators::compute;
 use crate::scoring;
 use crate::server;
 use crate::fundamentals;
-
+use crate::news;
 pub async fn run(pool: &sqlx::SqlitePool){
 
     let args: Vec<String>=  std::env::args().collect();
@@ -178,6 +178,15 @@ pub async fn run(pool: &sqlx::SqlitePool){
         Some("serve") => {
             server::serve(pool.clone()).await.expect("server crashed");
         }
+
+        Some("news") => {
+            match args.get(2).map(|s| s.as_str()) {
+                Some("sync") => news::sync(pool).await.expect("news sync failed"),
+                Some("list") => news::list(pool).await.expect("news list failed"),
+                _ => println!("Usage: fuchs news <sync|list>"),
+            }
+        }
+
 
         None => println!("Usage: fuchs <add|list|sync [--fundamentals|--all]|score|serve>"),
         _ => println!("Invalid argument"),
