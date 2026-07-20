@@ -1,5 +1,5 @@
 use sqlx::SqlitePool;
-use crate::models::{Stock, Price, Fundamentals};
+use crate::models::{Stock, Price, Fundamentals, Earnings};
 
 pub async fn init_db() -> Result<SqlitePool, sqlx::Error> {
 
@@ -76,6 +76,21 @@ pub async fn init_db() -> Result<SqlitePool, sqlx::Error> {
         .await?;
 
     sqlx::query(
+        "CREATE TABLE IF NOT EXISTS earnings (
+    id INTEGER PRIMARY KEY,
+    stock_id INTEGER NOT NULL,
+    fiscal_date TEXT NOT NULL,      -- quarter end, YYYY-MM-DD
+    reported_eps REAL,
+    estimated_eps REAL,
+    surprise_pct REAL,              -- AV surprisePercentage, e.g. 4.53 = beat by 4.53%
+    FOREIGN KEY(stock_id) REFERENCES stocks(id),
+    UNIQUE(stock_id, fiscal_date)
+);"
+    )
+        .execute(&pool)
+        .await?;
+
+    sqlx::query(
         "CREATE TABLE IF NOT EXISTS news_sources (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,      -- 'SET disclosures', 'Kaohoon', ...
@@ -140,6 +155,28 @@ pub async fn  add_stock(pool: &SqlitePool, symbol: &str) -> Result<(), sqlx::Err
         .await?;
     Ok(())
 }
+pub async fn delete_stock(pool: &SqlitePool, symbol: &str) -> Result<bool, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+
+    let stock_id: Option<i64> = sqlx::query_scalar("SELECT id FROM stocks WHERE symbol = ?")
+        .bind(symbol)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+    let Some(stock_id) = stock_id else {
+        return Ok(false);
+    };
+
+    sqlx::query("DELETE FROM prices WHERE stock_id = ?").bind(stock_id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM fundamentals WHERE stock_id = ?").bind(stock_id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM earnings WHERE stock_id = ?").bind(stock_id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM score_history WHERE stock_id = ?").bind(stock_id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM stocks WHERE id = ?").bind(stock_id).execute(&mut *tx).await?;
+
+    tx.commit().await?;
+    Ok(true)
+}
+
 pub async fn  list_stocks(pool: &SqlitePool) -> Result<Vec<Stock>, sqlx::Error>{
 
     let lists = sqlx::query_as::<_, Stock>("SELECT id, symbol, name FROM stocks")
@@ -302,6 +339,43 @@ pub async fn get_fundamentals_age_days(
     let today = OffsetDateTime::now_utc().date();
     let diff = today - stored;
     Ok(Some(diff.whole_days()))
+}
+
+pub async fn insert_earnings(
+    pool: &SqlitePool,
+    stock_id: i64,
+    fiscal_date: &str,
+    reported_eps: Option<f64>,
+    estimated_eps: Option<f64>,
+    surprise_pct: Option<f64>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT OR IGNORE INTO earnings
+            (stock_id, fiscal_date, reported_eps, estimated_eps, surprise_pct)
+         VALUES (?, ?, ?, ?, ?)"
+    )
+        .bind(stock_id)
+        .bind(fiscal_date)
+        .bind(reported_eps)
+        .bind(estimated_eps)
+        .bind(surprise_pct)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn get_recent_earnings(
+    pool: &SqlitePool,
+    stock_id: i64,
+    limit: i64,
+) -> Result<Vec<Earnings>, sqlx::Error> {
+    sqlx::query_as::<_, Earnings>(
+        "SELECT * FROM earnings WHERE stock_id = ? ORDER BY fiscal_date DESC LIMIT ?"
+    )
+        .bind(stock_id)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
 }
 
 pub async fn insert_score_history(pool: &SqlitePool, stock_id: i64,

@@ -19,6 +19,19 @@ pub async fn run(pool: &sqlx::SqlitePool){
                 None => println!("Usage: fuchs add <SYMBOL>"),
             }
         },
+        Some("remove") =>{
+            match args.get(2).map(|s| s.as_str()) {
+                Some(symbol) =>{
+                    let symbol = symbol.to_uppercase();
+                    match db::delete_stock(pool, &symbol).await {
+                        Ok(true) => println!("Removed {} (and its prices/fundamentals/earnings/score history)", symbol),
+                        Ok(false) => println!("{} not in watchlist", symbol),
+                        Err(e) => eprintln!("Failed to remove {}: {}", symbol, e),
+                    }
+                }
+                None => println!("Usage: fuchs remove <SYMBOL>"),
+            }
+        },
         Some("list")=> {
             let stocks = db::list_stocks(pool).await.expect("failed to load stocks");
             for stock in &stocks {
@@ -33,7 +46,7 @@ pub async fn run(pool: &sqlx::SqlitePool){
 
             match mode {
                 Some("--fundamentals") => {
-                    let force = args.iter().any(|a| a == "--force");
+                    
                     const FRESHNESS_DAYS: i64 = 7;
                     for stock in &stocks {
                         // Check freshness first
@@ -51,6 +64,11 @@ pub async fn run(pool: &sqlx::SqlitePool){
 
                         if let Err(e) = fundamentals::sync_fundamentals(pool, &stock.symbol).await {
                             eprintln!("Failed to sync fundamentals for {}: {}", stock.symbol, e);
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(13)).await;
+
+                        if let Err(e) = fundamentals::sync_earnings(pool, &stock.symbol).await {
+                            eprintln!("Failed to sync earnings for {}: {}", stock.symbol, e);
                         }
                         tokio::time::sleep(std::time::Duration::from_secs(13)).await;
                     }
@@ -79,6 +97,11 @@ pub async fn run(pool: &sqlx::SqlitePool){
                         if should_fetch {
                             if let Err(e) = fundamentals::sync_fundamentals(pool, &stock.symbol).await {
                                 eprintln!("Failed to sync fundamentals for {}: {}", stock.symbol, e);
+                            }
+                            tokio::time::sleep(std::time::Duration::from_secs(13)).await;
+
+                            if let Err(e) = fundamentals::sync_earnings(pool, &stock.symbol).await {
+                                eprintln!("Failed to sync earnings for {}: {}", stock.symbol, e);
                             }
                             tokio::time::sleep(std::time::Duration::from_secs(13)).await;
                         }
@@ -120,7 +143,10 @@ pub async fn run(pool: &sqlx::SqlitePool){
                         .expect("Stock not in watchlist");
                     let fundamentals = db::get_latest_fundamentals(pool, stock.id).await
                         .expect("DB error");
-                    let fund_breakdown = fundamentals.as_ref().map(scoring::score_fundamental);
+                    let earnings = db::get_recent_earnings(pool, stock.id, 4).await
+                        .unwrap_or_default();
+                    let fund_breakdown = fundamentals.as_ref()
+                        .map(|f| scoring::score_fundamental(f, &earnings));
 
                     // Combined
                     let combined = scoring::score_combined(
@@ -188,7 +214,7 @@ pub async fn run(pool: &sqlx::SqlitePool){
         }
 
 
-        None => println!("Usage: fuchs <add|list|sync [--fundamentals|--all]|score|serve>"),
+        None => println!("Usage: fuchs <add|remove|list|sync [--fundamentals|--all]|score|serve>"),
         _ => println!("Invalid argument"),
 
 

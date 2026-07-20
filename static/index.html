@@ -223,7 +223,8 @@
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: var(--radius);
-            overflow: hidden;
+            overflow: visible; /* was hidden — clipped the .ind-cell tooltip whenever it popped above the card edge */
+            flex-shrink: 0;
         }
 
         .card-header {
@@ -246,6 +247,51 @@
             width: 100%;
             height: 340px;
         }
+
+        .chart-card-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 16px;
+            padding: 18px 18px 4px;
+        }
+
+        .chart-price-block { display: flex; flex-direction: column; gap: 4px; }
+
+        .chart-price {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .chart-change { font-size: 13px; font-weight: 600; }
+        .chart-change.pos { color: var(--green); }
+        .chart-change.neg { color: var(--red); }
+
+        .range-group {
+            display: flex;
+            gap: 2px;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 3px;
+        }
+
+        .range-btn {
+            border: none;
+            background: transparent;
+            color: var(--text-2);
+            font-size: 12px;
+            font-weight: 600;
+            padding: 5px 11px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .range-btn:hover { color: var(--text-1); }
+        .range-btn.active { background: var(--accent-dim); color: var(--accent); }
 
         /* ── Score row ── */
         .score-row {
@@ -317,10 +363,41 @@
         }
 
         .ind-cell {
+            position: relative;
             background: var(--surface-2);
             border: 1px solid var(--border);
             border-radius: var(--radius);
             padding: 12px 14px;
+            cursor: help;
+        }
+
+        .ind-cell::after {
+            content: attr(data-tip);
+            position: absolute;
+            left: 50%;
+            bottom: calc(100% + 8px);
+            transform: translateX(-50%);
+            width: 240px;
+            background: var(--surface-2);
+            border: 1px solid var(--border-2);
+            border-radius: 8px;
+            padding: 12px 14px;
+            color: var(--text-1);
+            font-size: 12px;
+            font-weight: 400;
+            line-height: 1.4;
+            text-align: left;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.12s ease;
+            z-index: 20;
+        }
+
+        .ind-cell:hover::after {
+            opacity: 1;
+            visibility: visible;
         }
 
         .ind-label {
@@ -484,28 +561,145 @@
     }
 
     // ── Chart ────────────────────────────────────────────────────────────────
-    let chart = null, candleSeries = null;
+    // ponytail: content.innerHTML is fully replaced on every stock click, which
+    // destroys the old #chart-container — so the chart is always recreated
+    // against the current (fresh) container rather than resized in place.
+    let chart = null, series = null, allPrices = [], currentSymbol = null;
+    let chartType = 'area'; // 'area' | 'candle' — persists across stock switches
+
+    // Counts are trading days (bars), not calendar days — we're slicing an
+    // array of daily bars for everything except 1D/5D, which hit the live
+    // /intraday endpoint instead (daily bars have no intraday granularity).
+    // 1D and 5D both fetch the same 5-day intraday response (cached
+    // server-side) — 1D just filters it down to the latest session
+    // client-side, rather than calling Yahoo's flaky range=1d directly
+    // (thin-to-empty outside market hours).
+    const RANGES = [
+        { label: '1D',  count: null, intraday: true, sessionOnly: true },
+        { label: '5D',  count: null, intraday: true },
+        { label: '1W',  count: 5 },
+        { label: '1M',  count: 21 },
+        { label: '3M',  count: 63 },
+        { label: '6M',  count: 126 },
+        { label: '1Y',  count: 252 },
+        { label: 'ALL', count: null },
+    ];
+    let activeRangeLabel = RANGES[0].label;
 
     function ensureChart() {
         const container = document.getElementById('chart-container');
-        if (chart) { chart.resize(container.clientWidth, 340); return; }
+        if (chart) { chart.remove(); }
         chart = LightweightCharts.createChart(container, {
             layout: { background: { color: '#18181b' }, textColor: '#a1a1aa' },
-            grid:   { vertLines: { color: '#27272a' }, horzLines: { color: '#27272a' } },
+            grid:   { vertLines: { visible: false }, horzLines: { visible: false } },
             crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
             rightPriceScale: { borderColor: '#27272a' },
             timeScale: { borderColor: '#27272a', timeVisible: true },
             width: container.clientWidth,
             height: 340,
         });
-        candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
-            upColor: '#22c55e', downColor: '#ef4444',
-            borderUpColor: '#22c55e', borderDownColor: '#ef4444',
-            wickUpColor: '#22c55e', wickDownColor: '#ef4444',
+        series = chartType === 'candle'
+            ? chart.addSeries(LightweightCharts.CandlestickSeries, {
+                  upColor: '#22c55e', downColor: '#ef4444',
+                  borderUpColor: '#22c55e', borderDownColor: '#ef4444',
+                  wickUpColor: '#22c55e', wickDownColor: '#ef4444',
+              })
+            : chart.addSeries(LightweightCharts.AreaSeries, {
+                  lineColor: '#f59e0b',
+                  topColor: 'rgba(245, 158, 11, 0.28)',
+                  bottomColor: 'rgba(245, 158, 11, 0)',
+                  lineWidth: 2,
+              });
+    }
+
+    // Registered once — always resizes whatever chart/container is current.
+    window.addEventListener('resize', () => {
+        const container = document.getElementById('chart-container');
+        if (chart && container) chart.resize(container.clientWidth, 340);
+    });
+
+    function latestSessionOnly(bars) {
+        // ponytail: grouping by calendar date would use the viewer's local
+        // timezone and can split one NYSE session (13:30-20:00 UTC) across
+        // two local dates for anyone east of UTC. Instead, walk back from
+        // the end and stop at the first gap bigger than a few missed 5m
+        // bars — that gap is the session boundary (market close → next open),
+        // timezone-independent since it only compares raw unix timestamps.
+        if (!bars.length) return bars;
+        const maxGapSeconds = 30 * 60;
+        let start = bars.length - 1;
+        while (start > 0 && (bars[start].t - bars[start - 1].t) <= maxGapSeconds) start--;
+        return bars.slice(start);
+    }
+
+    function setChartData(bars) {
+        // bars: [{ t, open, high, low, close }] — t is a date string for
+        // daily bars, a unix timestamp for intraday.
+        series.setData(chartType === 'candle'
+            ? bars.map(b => ({ time: b.t, open: b.open, high: b.high, low: b.low, close: b.close }))
+            : bars.map(b => ({ time: b.t, value: b.close })));
+        chart.timeScale().fitContent();
+    }
+
+    async function applyRange(range) {
+        activeRangeLabel = range.label;
+        const symbolAtRequest = currentSymbol;
+        document.querySelectorAll('.range-btn[data-label]').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.label === range.label);
         });
-        window.addEventListener('resize', () => {
-            if (chart) chart.resize(container.clientWidth, 340);
-        });
+
+        let bars;
+        if (range.intraday) {
+            try {
+                const res = await fetch(`/api/stocks/${symbolAtRequest}/intraday`);
+                const raw = res.ok ? await res.json() : [];
+                bars = raw.map(b => ({ t: b.time, open: b.open, high: b.high, low: b.low, close: b.close }));
+                if (range.sessionOnly) bars = latestSessionOnly(bars);
+            } catch {
+                bars = [];
+            }
+        } else {
+            const slice = range.count ? allPrices.slice(-range.count) : allPrices;
+            bars = slice.map(p => ({ t: p.date, open: p.open, high: p.high, low: p.low, close: p.close }));
+        }
+
+        // A stock switch or type toggle may have started a newer applyRange
+        // call while this fetch was in flight — drop stale results.
+        if (activeRangeLabel !== range.label || currentSymbol !== symbolAtRequest) return;
+
+        setChartData(bars);
+        updateChartHeader(bars);
+    }
+
+    function buildRangeButtons() {
+        return RANGES.map(r => `<button class="range-btn" data-label="${r.label}">${r.label}</button>`).join('');
+    }
+
+    function buildTypeButtons() {
+        return ['area', 'candle'].map(t =>
+            `<button class="range-btn type-btn" data-type="${t}">${t === 'area' ? 'Line' : 'Candle'}</button>`
+        ).join('');
+    }
+
+    function updateChartHeader(slice) {
+        const priceEl  = document.getElementById('chart-price');
+        const changeEl = document.getElementById('chart-change');
+        if (!priceEl || !changeEl) return;
+        if (!slice.length) { priceEl.textContent = '—'; changeEl.textContent = ''; return; }
+
+        const first = slice[0].close;
+        const last  = slice[slice.length - 1].close;
+        const diff  = last - first;
+        const pct   = first !== 0 ? (diff / first) * 100 : 0;
+        const sign  = diff >= 0 ? '+' : '';
+
+        priceEl.textContent = `$${last.toFixed(2)}`;
+        changeEl.textContent = `${sign}${diff.toFixed(2)} (${sign}${pct.toFixed(2)}%)`;
+        changeEl.className = `chart-change ${diff >= 0 ? 'pos' : 'neg'}`;
+    }
+
+    function buildRangeButtons() {
+        return RANGES.map(r => `<button class="range-btn" data-label="${r.label}">${r.label}</button>`).join('');
     }
 
     // ── Watchlist ────────────────────────────────────────────────────────────
@@ -617,9 +811,15 @@
 
             <!-- Chart -->
             <div class="card">
-                <div class="card-header">
-                    Price chart
-                    <span style="color:var(--text-3);font-weight:400;text-transform:none;letter-spacing:0;">5y daily</span>
+                <div class="chart-card-header">
+                    <div class="chart-price-block">
+                        <div class="chart-price" id="chart-price">—</div>
+                        <div class="chart-change" id="chart-change"></div>
+                    </div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <div class="range-group">${buildTypeButtons()}</div>
+                        <div class="range-group">${buildRangeButtons()}</div>
+                    </div>
                 </div>
                 <div id="chart-container"></div>
             </div>
@@ -653,16 +853,16 @@
                 <div class="card-header">Indicators</div>
                 <div class="card-body">
                     <div class="indicators-grid">
-                        ${indCell('Last Close', ind.last_close.toFixed(2))}
-                        ${indCell('RSI (14)',   ind.rsi.toFixed(2),   rsiColor(ind.rsi))}
-                        ${indCell('SMA 50',     ind.sma_50.toFixed(2))}
-                        ${indCell('SMA 200',    ind.sma_200.toFixed(2))}
-                        ${indCell('MACD',       ind.macd.toFixed(3),       ind.macd > ind.macd_signal ? 'var(--green)' : 'var(--red)')}
-                        ${indCell('Signal',     ind.macd_signal.toFixed(3))}
-                        ${indCell('Histogram',  ind.macd_histogram.toFixed(3), ind.macd_histogram > 0 ? 'var(--green)' : 'var(--red)')}
-                        ${indCell('BB Lower',   ind.bb_lower.toFixed(2))}
-                        ${indCell('BB Mid',     ind.bb_middle.toFixed(2))}
-                        ${indCell('BB Upper',   ind.bb_upper.toFixed(2))}
+                        ${indCell('Last Close', ind.last_close.toFixed(2), null, 'Most recent daily closing price.')}
+                        ${indCell('RSI (14)',   ind.rsi.toFixed(2),   rsiColor(ind.rsi), 'Relative Strength Index over 14 days. Below 30 = oversold (possible bounce); above 70 = overbought (caution).')}
+                        ${indCell('SMA 50',     ind.sma_50.toFixed(2), null, '50-day Simple Moving Average — average close over the last 50 trading days, a medium-term trend line.')}
+                        ${indCell('SMA 200',    ind.sma_200.toFixed(2), null, '200-day Simple Moving Average — average close over the last 200 trading days, a long-term trend line.')}
+                        ${indCell('MACD',       ind.macd.toFixed(3),       ind.macd > ind.macd_signal ? 'var(--green)' : 'var(--red)', 'MACD line (12-day EMA minus 26-day EMA). Above the signal line suggests bullish momentum, below suggests bearish.')}
+                        ${indCell('Signal',     ind.macd_signal.toFixed(3), null, 'MACD signal line — a 9-day EMA of the MACD line. Crossovers with MACD are the usual buy/sell trigger.')}
+                        ${indCell('Histogram',  ind.macd_histogram.toFixed(3), ind.macd_histogram > 0 ? 'var(--green)' : 'var(--red)', 'MACD minus its signal line. Positive and growing = strengthening momentum; negative and falling = weakening.')}
+                        ${indCell('BB Lower',   ind.bb_lower.toFixed(2), null, 'Bollinger lower band — 20-day SMA minus 2 standard deviations. Price near here suggests oversold / a potential support level.')}
+                        ${indCell('BB Mid',     ind.bb_middle.toFixed(2), null, 'Bollinger middle band — the 20-day Simple Moving Average.')}
+                        ${indCell('BB Upper',   ind.bb_upper.toFixed(2), null, 'Bollinger upper band — 20-day SMA plus 2 standard deviations. Price near here suggests overbought / a potential resistance level.')}
                     </div>
                 </div>
             </div>
@@ -694,17 +894,30 @@
         `;
 
         // Mount chart after DOM is ready
+        currentSymbol = stock.symbol;
+        allPrices = pricesData;
         ensureChart();
-        const candles = pricesData.map(p => ({
-            time: p.date, open: p.open, high: p.high, low: p.low, close: p.close,
-        }));
-        candleSeries.setData(candles);
-        chart.timeScale().fitContent();
+
+        document.querySelectorAll('.range-btn[data-label]').forEach(btn => {
+            btn.addEventListener('click', () => applyRange(RANGES.find(r => r.label === btn.dataset.label)));
+        });
+        document.querySelectorAll('.type-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.type === chartType);
+            btn.addEventListener('click', () => {
+                if (btn.dataset.type === chartType) return;
+                chartType = btn.dataset.type;
+                document.querySelectorAll('.type-btn').forEach(b => b.classList.toggle('active', b.dataset.type === chartType));
+                ensureChart();
+                applyRange(RANGES.find(r => r.label === activeRangeLabel) ?? RANGES[0]);
+            });
+        });
+
+        applyRange(RANGES.find(r => r.label === activeRangeLabel) ?? RANGES[0]);
     }
 
-    function indCell(label, value, color) {
+    function indCell(label, value, color, explain) {
         const colorStyle = color ? `style="color:${color}"` : '';
-        return `<div class="ind-cell">
+        return `<div class="ind-cell" data-tip="${explain}">
             <div class="ind-label">${label}</div>
             <div class="ind-value" ${colorStyle}>${value}</div>
         </div>`;

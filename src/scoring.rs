@@ -1,5 +1,5 @@
 use crate::indicators::Indicators;
-use crate::models::Fundamentals;
+use crate::models::{Fundamentals, Earnings};
 #[derive(Debug, serde::Serialize)]
 pub struct RuleHit{
     pub rule: String,
@@ -117,7 +117,7 @@ pub fn score_technical(ind: &Indicators) -> ScoreBreakdown {
     ScoreBreakdown{total, hits}
 }
 
-pub fn score_fundamental(f: &Fundamentals) -> ScoreBreakdown {
+pub fn score_fundamental(f: &Fundamentals, earnings: &[Earnings]) -> ScoreBreakdown {
     let mut hits: Vec<RuleHit> = Vec::new();
 
     // --- VALUATION ---
@@ -198,6 +198,26 @@ pub fn score_fundamental(f: &Fundamentals) -> ScoreBreakdown {
         }
     }
 
+    // --- EARNINGS SURPRISE (earnings expected sorted most-recent-first) ---
+    let streak = earnings.iter()
+        .take_while(|e| e.surprise_pct.is_some_and(|s| s > 0.0))
+        .count();
+    if streak >= 3 {
+        hits.push(RuleHit { rule: "Beat earnings estimates 3+ quarters straight".into(), points: 15 });
+    } else if streak == 2 {
+        hits.push(RuleHit { rule: "Beat earnings estimates last 2 quarters".into(), points: 10 });
+    } else if streak == 1 {
+        hits.push(RuleHit { rule: "Beat earnings estimate last quarter".into(), points: 5 });
+    }
+
+    if let Some(latest_surprise) = earnings.first().and_then(|e| e.surprise_pct) {
+        if latest_surprise < -10.0 {
+            hits.push(RuleHit { rule: "Missed earnings estimate by >10% last quarter".into(), points: -15 });
+        } else if latest_surprise < 0.0 {
+            hits.push(RuleHit { rule: "Missed earnings estimate last quarter".into(), points: -5 });
+        }
+    }
+
     // --- DIVIDEND (small positive only — not central to scoring) ---
     if let Some(dy) = f.dividend_yield {
         if dy > 0.03 {
@@ -216,6 +236,76 @@ pub struct CombinedScore {
     pub total: i32,
     pub technical: ScoreBreakdown,
     pub fundamental: Option<ScoreBreakdown>,
+}
+
+#[cfg(test)]
+mod earnings_scoring_tests {
+    use super::*;
+
+    fn empty_fundamentals() -> Fundamentals {
+        Fundamentals {
+            id: 0, stock_id: 0, as_of_date: String::new(),
+            sector: None, market_cap: None, pe_ratio: None, peg_ratio: None,
+            pb_ratio: None, eps: None, dividend_yield: None, profit_margin: None,
+            roe: None, debt_to_equity: None, revenue_ttm: None,
+            quarterly_revenue_growth: None, quarterly_earnings_growth: None,
+        }
+    }
+
+    fn earning(surprise_pct: Option<f64>) -> Earnings {
+        Earnings {
+            id: 0, stock_id: 0, fiscal_date: String::new(),
+            reported_eps: None, estimated_eps: None, surprise_pct,
+        }
+    }
+
+    fn rules(surprises: &[Option<f64>]) -> Vec<String> {
+        let earnings: Vec<Earnings> = surprises.iter().map(|s| earning(*s)).collect();
+        score_fundamental(&empty_fundamentals(), &earnings).hits
+            .into_iter().map(|h| h.rule).collect()
+    }
+
+    #[test]
+    fn no_earnings_data_adds_no_rule() {
+        assert!(rules(&[]).is_empty());
+    }
+
+    #[test]
+    fn single_beat_scores_five() {
+        assert_eq!(rules(&[Some(3.6)]), vec!["Beat earnings estimate last quarter"]);
+    }
+
+    #[test]
+    fn two_quarter_streak_scores_ten() {
+        assert_eq!(rules(&[Some(3.6), Some(1.0)]), vec!["Beat earnings estimates last 2 quarters"]);
+    }
+
+    #[test]
+    fn three_plus_streak_scores_fifteen() {
+        assert_eq!(
+            rules(&[Some(3.6), Some(1.0), Some(0.5), Some(-20.0)]),
+            vec!["Beat earnings estimates 3+ quarters straight"]
+        );
+    }
+
+    #[test]
+    fn small_miss_scores_minus_five() {
+        assert_eq!(rules(&[Some(-2.0)]), vec!["Missed earnings estimate last quarter"]);
+    }
+
+    #[test]
+    fn big_miss_scores_minus_fifteen() {
+        assert_eq!(
+            rules(&[Some(-15.0)]),
+            vec!["Missed earnings estimate by >10% last quarter"]
+        );
+    }
+
+    #[test]
+    fn streak_breaks_on_first_missing_data() {
+        // A quarter with no surprise data (None) should not count toward the streak.
+        assert!(rules(&[None, Some(3.6)]).is_empty());
+    }
 }
 
 pub fn score_combined(

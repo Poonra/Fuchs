@@ -28,6 +28,24 @@ pub struct OverviewResponse {
     pub quarterly_earnings_growth_yoy: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct EarningsResponse {
+    #[serde(rename = "quarterlyEarnings")]
+    pub quarterly_earnings: Option<Vec<QuarterlyEarning>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct QuarterlyEarning {
+    #[serde(rename = "fiscalDateEnding")]
+    pub fiscal_date_ending: String,
+    #[serde(rename = "reportedEPS")]
+    pub reported_eps: Option<String>,
+    #[serde(rename = "estimatedEPS")]
+    pub estimated_eps: Option<String>,
+    #[serde(rename = "surprisePercentage")]
+    pub surprise_percentage: Option<String>,
+}
+
 fn parse_f64(s: &Option<String>) -> Option<f64> {
     match s {
         Some(v) if v != "None" && v != "-" && !v.is_empty() => v.parse::<f64>().ok(),
@@ -92,5 +110,52 @@ pub async fn sync_fundamentals(pool: &SqlitePool, symbol: &str) -> anyhow::Resul
     ).await?;
 
     println!("Synced fundamentals for {}", symbol);
+    Ok(())
+}
+
+pub async fn sync_earnings(pool: &SqlitePool, symbol: &str) -> anyhow::Result<()> {
+    let api_key = std::env::var("ALPHA_VANTAGE_API_KEY")
+        .map_err(|_| anyhow::anyhow!("ALPHA_VANTAGE_API_KEY not set. Add it to .env"))?;
+
+    let stock = match db::get_stock_by_symbol(pool, symbol).await? {
+        Some(s) => s,
+        None => {
+            println!("Stock {} not in watchlist. Add it first.", symbol);
+            return Ok(());
+        }
+    };
+
+    let url = format!(
+        "{}?function=EARNINGS&symbol={}&apikey={}",
+        ALPHA_VANTAGE_BASE, symbol, api_key
+    );
+
+    let response = reqwest::get(&url).await?;
+    let body = response.text().await?;
+
+    if body.contains("\"Note\"") || body.contains("\"Information\"") {
+        anyhow::bail!("Alpha Vantage API limit or error: {}", body);
+    }
+
+    let earnings: EarningsResponse = serde_json::from_str(&body)?;
+    let quarters = earnings.quarterly_earnings.unwrap_or_default();
+
+    if quarters.is_empty() {
+        anyhow::bail!("Empty earnings response for {}. Symbol may be invalid.", symbol);
+    }
+
+    // Last 4 quarters is enough for a beat/miss streak rule.
+    for q in quarters.iter().take(4) {
+        db::insert_earnings(
+            pool,
+            stock.id,
+            &q.fiscal_date_ending,
+            parse_f64(&q.reported_eps),
+            parse_f64(&q.estimated_eps),
+            parse_f64(&q.surprise_percentage),
+        ).await?;
+    }
+
+    println!("Synced earnings for {}", symbol);
     Ok(())
 }

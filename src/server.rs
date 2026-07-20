@@ -41,6 +41,7 @@ pub async fn serve(pool:SqlitePool) -> anyhow::Result<()> { // register all rout
     let app = Router::new()
         .route("/api/stocks", get(list_stocks))
         .route("/api/stocks/{symbol}/prices", get(get_prices))
+        .route("/api/stocks/{symbol}/intraday", get(get_intraday))
         .route("/api/stocks/{symbol}/score", get(get_score))
         .fallback_service(ServeDir::new("static"))
 
@@ -107,7 +108,8 @@ async fn get_score(
     let stock = db::get_stock_by_symbol(&pool, &symbol).await?
         .ok_or_else(|| anyhow::anyhow!("stock {} not found", symbol))?;
     let fundamentals = db::get_latest_fundamentals(&pool, stock.id).await?;
-    let fund_breakdown = fundamentals.as_ref().map(score_fundamental);
+    let earnings = db::get_recent_earnings(&pool, stock.id, 4).await.unwrap_or_default();
+    let fund_breakdown = fundamentals.as_ref().map(|f| score_fundamental(f, &earnings));
 
     let combined = score_combined(tech_breakdown, fund_breakdown);
 
@@ -138,4 +140,9 @@ async fn get_prices(
         .ok_or_else(|| anyhow::anyhow!("stock {} not found", symbol))?;
     let prices = db::get_prices(&pool, stock.id, None).await?;
     Ok(Json(prices))
+}
+
+async fn get_intraday(Path(symbol): Path<String>) -> Result<Json<Vec<ingest::IntradayBar>>, AppError> {
+    let bars = ingest::fetch_intraday(&symbol.to_uppercase()).await?;
+    Ok(Json(bars))
 }

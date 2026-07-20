@@ -35,3 +35,13 @@ pub struct Fundamentals {
     pub quarterly_revenue_growth: Option<f64>,
     pub quarterly_earnings_growth: Option<f64>,
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
+pub struct Earnings {
+    pub id: i64,
+    pub stock_id: i64,
+    pub fiscal_date: String,
+    pub reported_eps: Option<f64>,
+    pub estimated_eps: Option<f64>,
+    pub surprise_pct: Option<f64>, // AV surprisePercentage, e.g. 4.53 = beat by 4.53%
+}
